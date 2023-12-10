@@ -162,3 +162,4 @@ cython_debug/
 *.idea/
 *.slurm
 /slakh2100
+slakh2100
