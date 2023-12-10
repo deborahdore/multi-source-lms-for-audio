@@ -1,40 +1,82 @@
 import lightning as L
-import pytorch_lightning
 import torch
 import torch.nn.functional as F
 from torch import nn, optim
-import pytorch_lightning as pl
 
 
-class VQVAE(pl.LightningModule):
+class VQVAE(L.LightningModule):
 	def __init__(self,
 				 num_hidden: int,
 				 num_residual_layer: int,
 				 num_residual_hidden: int,
 				 num_embedding: int,
 				 embedding_dim: int,
-				 commitment_cost: float):
+				 commitment_cost: float,
+				 learning_rate: int):
 		super(VQVAE, self).__init__()
 
-		self.encoder = Encoder(in_channel=3,
+		self.encoder = Encoder(in_channel=1,
 							   num_hidden=num_hidden,
 							   num_residual_layer=num_residual_layer,
 							   num_residual_hidden=num_residual_hidden)
-		self.conv = nn.Conv2d(in_channels=num_hidden, out_channels=embedding_dim, kernel_size=1, stride=1)
+
+		self.conv = nn.Conv1d(in_channels=num_hidden, out_channels=embedding_dim, kernel_size=1, stride=1)
+
 		self.vector_quantizer = VectorQuantizer(num_embedding=num_embedding,
 												embedding_dim=embedding_dim,
 												commitment_cost=commitment_cost)
+
 		self.decoder = Decoder(in_channel=embedding_dim,
 							   num_hidden=num_hidden,
 							   num_residual_layer=num_residual_layer,
 							   num_residual_hidden=num_residual_hidden)
 
-	def forward(self, x):
-		z = self.conv(self.encoder(x))
+		self.learning_rate = learning_rate
+		self.save_hyperparameters()
+
+	def training_step(self, batch, batch_idx):
+		mixed, instruments = batch
+		z = self.conv(self.encoder(mixed))
 		loss, quantized, perplexity, _ = self.vector_quantizer(z)
 		output = self.decoder(quantized)
 
-		return loss, output, perplexity
+		final_loss = nn.functional.mse_loss(output, instruments) + loss
+		self.log("train_loss", loss, on_epoch=True, sync_dist=True)
+
+		return final_loss
+
+	def forward(self, batch):
+		x, _ = batch
+		z = self.conv(self.encoder(x))
+		loss, quantized, perplexity, _ = self.vector_quantizer(z)
+		output = self.decoder(quantized)
+		return output
+
+	def validation_step(self, batch, batch_idx):
+		mixed, instruments = batch
+		z = self.conv(self.encoder(mixed))
+		loss, quantized, perplexity, _ = self.vector_quantizer(z)
+		output = self.decoder(quantized)
+
+		final_loss = nn.functional.mse_loss(output, instruments) + loss
+		self.log("val_loss", loss)
+
+		return final_loss
+
+	def test_step(self, batch, batch_idx):
+		mixed, instruments = batch
+		z = self.conv(self.encoder(mixed))
+		loss, quantized, perplexity, _ = self.vector_quantizer(z)
+		output = self.decoder(quantized)
+
+		final_loss = nn.functional.mse_loss(output, instruments) + loss
+		self.log("test_loss", loss)
+
+		return final_loss
+
+	def configure_optimizers(self):
+		optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, amsgrad=False)
+		return optimizer
 
 
 class ResidualStack(nn.Module):
@@ -42,14 +84,14 @@ class ResidualStack(nn.Module):
 		super(ResidualStack, self).__init__()
 
 		self.residual_layers = nn.ModuleList([nn.Sequential(nn.ReLU(True),
-															nn.Conv2d(in_channels=in_channel if i == 0 else num_hidden,
+															nn.Conv1d(in_channels=in_channel if i == 0 else num_hidden,
 																	  out_channels=num_residual_hidden,
 																	  kernel_size=3,
 																	  stride=1,
 																	  padding=1,
 																	  bias=False),
 															nn.ReLU(True),
-															nn.Conv2d(in_channels=num_residual_hidden,
+															nn.Conv1d(in_channels=num_residual_hidden,
 																	  out_channels=num_hidden,
 																	  kernel_size=1,
 																	  stride=1,
@@ -78,7 +120,7 @@ class VectorQuantizer(nn.Module):
 
 	def forward(self, inputs):
 		# convert inputs from BCHW -> BHWC
-		inputs = inputs.permute(0, 2, 3, 1).contiguous()
+		inputs = inputs[:,:, None, :].permute(0, 2, 3, 1).contiguous()
 		input_shape = inputs.shape
 
 		# Flatten input
@@ -106,21 +148,21 @@ class VectorQuantizer(nn.Module):
 		avg_probs = torch.mean(encodings, dim=0)
 		perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
 
-		# convert quantized from BHWC -> BCHW
-		return loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
+		# convert quantized from BHWC -> BCW
+		return loss, quantized.permute(0, 3, 1, 2).squeeze(-2).contiguous(), perplexity, encodings
 
 
 class Encoder(nn.Module):
 	def __init__(self, in_channel: int, num_hidden: int, num_residual_layer: int, num_residual_hidden: int):
 		super(Encoder, self).__init__()
 
-		self.conv1 = nn.Conv2d(in_channels=in_channel, out_channels=num_hidden // 2, kernel_size=4, stride=2,
+		self.conv1 = nn.Conv1d(in_channels=in_channel, out_channels=num_hidden // 2, kernel_size=4, stride=2,
 							   padding=1)
 
-		self.conv2 = nn.Conv2d(in_channels=num_hidden // 2, out_channels=num_hidden, kernel_size=4, stride=2,
+		self.conv2 = nn.Conv1d(in_channels=num_hidden // 2, out_channels=num_hidden, kernel_size=4, stride=2,
 							   padding=1)
 
-		self.conv3 = nn.Conv2d(in_channels=num_hidden, out_channels=num_hidden, kernel_size=3, stride=1, padding=1)
+		self.conv3 = nn.Conv1d(in_channels=num_hidden, out_channels=num_hidden, kernel_size=3, stride=1, padding=1)
 
 		self.residual_stack = ResidualStack(in_channel=num_hidden,
 											num_hidden=num_hidden,
@@ -137,24 +179,24 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
 	def __init__(self, in_channel: int, num_hidden: int, num_residual_layer: int, num_residual_hidden: int):
 		super(Decoder, self).__init__()
-		self.conv1 = nn.Conv2d(in_channels=in_channel, out_channels=num_hidden, kernel_size=3, stride=1, padding=1)
+		self.conv1 = nn.Conv1d(in_channels=in_channel, out_channels=num_hidden, kernel_size=3, stride=1, padding=1)
 
 		self.residual_stack = ResidualStack(in_channel=num_hidden,
 											num_hidden=num_hidden,
 											num_residual_layer=num_residual_layer,
 											num_residual_hidden=num_residual_hidden)
 
-		self.conv1_transpose = nn.ConvTranspose2d(in_channels=num_hidden,
+		self.conv1_transpose = nn.ConvTranspose1d(in_channels=num_hidden,
 												  out_channels=num_hidden // 2,
 												  kernel_size=4,
 												  stride=2,
 												  padding=1)
 
-		self.conv2_transpose = nn.ConvTranspose2d(in_channels=num_hidden // 2,
-												  out_channels=3,
+		self.conv2_transpose = nn.ConvTranspose1d(in_channels=num_hidden // 2,
+												  out_channels=4,
 												  kernel_size=4,
 												  stride=2,
-												  padding=1)
+												  padding=0)
 
 	def forward(self, x):
 		x = self.conv1(x)
