@@ -45,11 +45,12 @@ class VQVAE(L.LightningModule):
 		output, loss = self.forward(mixed)
 
 		# loss per instruments
-		for i in range(instruments.size(1)):
+		for i in range(instruments.size(-2)):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
 		# loss on full audio
-		loss += F.mse_loss(input=sum(output.squeeze()), target=mixed.squeeze())
+		mixed_output = torch.einsum('bij-> bj', output)
+		loss += F.mse_loss(input=mixed_output, target=mixed.squeeze(1))
 
 		self.log("train_loss", loss, on_epoch=True, sync_dist=True)
 
@@ -66,11 +67,12 @@ class VQVAE(L.LightningModule):
 		output, loss = self.forward(mixed)
 
 		# loss per instruments
-		for i in range(instruments.size(1)):
+		for i in range(instruments.size(-2)):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
 		# loss on full audio
-		loss += F.mse_loss(input=sum(output.squeeze()), target=mixed.squeeze())
+		mixed_output = torch.einsum('bij-> bj', output)
+		loss += F.mse_loss(input=mixed_output, target=mixed.squeeze(1))
 
 		self.log("val_loss", loss, on_epoch=True, sync_dist=True)
 
@@ -81,11 +83,12 @@ class VQVAE(L.LightningModule):
 		output, loss = self.forward(mixed)
 
 		# loss per instruments
-		for i in range(instruments.size(1)):
+		for i in range(instruments.size(-2)):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
 		# loss on full audio
-		loss += F.mse_loss(input=sum(output.squeeze()), target=mixed.squeeze())
+		mixed_output = torch.einsum('bij-> bj', output)
+		loss += F.mse_loss(input=mixed_output, target=mixed.squeeze(1))
 
 		self.log("test_loss", loss, on_epoch=True, sync_dist=True)
 
@@ -132,7 +135,7 @@ class VQVAE(L.LightningModule):
 
 			torchaudio.save(uri=original_full_file, src=mixed.detach().cpu(), sample_rate=sample_rate)
 			torchaudio.save(uri=decoded_full_file,
-							src=sum(output_instruments).unsqueeze(0).detach().cpu(),
+							src=torch.einsum('ij-> j', output_instruments).unsqueeze(0).detach().cpu(),
 							sample_rate=sample_rate)
 
 			data[0].append(wandb.Audio(str(original_full_file), sample_rate=sample_rate))
@@ -186,7 +189,7 @@ class VectorQuantizer(nn.Module):
 
 	def forward(self, inputs):
 		# convert from BCW -> BWC
-		inputs = inputs.permute(0, 2, 1).contiguous()
+		inputs = torch.einsum('bcw -> bwc', inputs).contiguous()
 		input_shape = inputs.shape
 
 		# Flatten input
@@ -215,7 +218,7 @@ class VectorQuantizer(nn.Module):
 		perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
 
 		# convert from BWC -> BCW
-		return loss, quantized.permute(0, 2, 1).contiguous(), perplexity, encodings
+		return loss, torch.einsum('bwc -> bcw', quantized).contiguous(), perplexity, encodings
 
 
 class Encoder(nn.Module):

@@ -65,18 +65,18 @@ def main(config: DictConfig):
 	else:
 		logger = TensorBoardLogger(save_dir=config.path.logging_dir)
 
-	trainer = L.Trainer(enable_checkpointing=False,
+	trainer = L.Trainer(max_epochs=config.trainer.max_epochs,
+						callbacks=[EarlyStopping(monitor=config.trainer.early_stopping_monitor,
+												 mode=config.trainer.early_stopping_monitor_mode,
+												 patience=config.trainer.early_stopping_patience)],
+						profiler=config.trainer.profiler,
+						logger=logger,
 						# uncomment next 4 rows for debugging
 						# fast_dev_run=True,
 						# accelerator="cpu",
 						# strategy="ddp",
 						# devices=1,
-						max_epochs=config.trainer.max_epochs,
-						callbacks=[EarlyStopping(monitor=config.trainer.early_stopping_monitor,
-												 mode=config.trainer.early_stopping_monitor_mode,
-												 patience=config.trainer.early_stopping_patience)],
-						profiler=config.trainer.profiler,
-						logger=logger)
+						)
 
 	trainer.fit(model=model, train_dataloaders=train, val_dataloaders=val)
 	model.eval()

@@ -24,14 +24,15 @@ class SlakhDataset(Dataset):
 	def clean_df(self):
 		new_file_paths = []
 		for idx in range(0, len(self.file_paths)):
-			files = [files for root, _, files in os.walk(self.file_paths[idx])]
-			first_instrument_in_directory = os.path.join(self.file_paths[idx], files[0][0])
-			if first_instrument_in_directory:
-				info = torchaudio.info(first_instrument_in_directory)
-				length = info.num_frames / info.sample_rate
-				# 3 seconds of audio at least
-				if length >= self.frame_length_sec:
-					new_file_paths.append(self.file_paths[idx])
+			instruments = self.get_stems(idx)
+			is_silence = int(torch.einsum('ij-> ', instruments))
+			if is_silence <= 0:
+				continue
+			length = instruments.size(-1) // self.target_sample_rate
+			if length < 5:
+				continue
+			new_file_paths.append(self.file_paths[idx])
+
 		self.file_paths = new_file_paths
 
 	def get_stems(self, idx: int):
@@ -49,7 +50,7 @@ class SlakhDataset(Dataset):
 		max_len = max(audio.shape[-1] for audio in instrument_data)
 		# Pad or truncate to have the same length for all instruments
 		instrument_data = [torch.nn.functional.pad(audio, (0, max_len - audio.shape[-1])) for audio in instrument_data]
-		return torch.stack(instrument_data)
+		return torch.stack(instrument_data).squeeze()
 
 	def __len__(self):
 		return len(self.file_paths) * 100
@@ -61,19 +62,20 @@ class SlakhDataset(Dataset):
 		idx = idx % len(self.file_paths)
 
 		instruments = self.get_stems(idx)
-		mixture = sum(instruments)
+		mixture = torch.einsum('ij-> j', instruments).unsqueeze(0)
 
 		while True:
-			offset = random.randint(0, (int(mixture.size(1) / self.frame_length_samples) - 1))
+			offset = random.randint(0, (mixture.size(1) // self.frame_length_samples) - 1)
 
 			mixture_offset = mixture[:, offset * self.frame_length_samples: (offset + 1) * self.frame_length_samples]
-			instruments_offset = instruments[:, :,
+			instruments_offset = instruments[:,
 								 offset * self.frame_length_samples: (offset + 1) * self.frame_length_samples]
 
-			if sum(mixture_offset.squeeze()) > 0:
+			if torch.einsum('ij->', mixture_offset) > 0:
 				break
 
-		return torch.Tensor(mixture_offset), torch.Tensor(instruments_offset.squeeze(1))
+		return mixture_offset, instruments_offset
+
 
 # if __name__ == '__main__':
 # 	data = SlakhDataset("/Users/deborahdore/Documents/multi-source-lms-for-audio/slakh2100/test")
