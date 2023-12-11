@@ -1,6 +1,10 @@
+from typing import Any
+
 import lightning as L
 import torch
 import torch.nn.functional as F
+import torchaudio
+import wandb
 from torch import nn, optim
 
 
@@ -12,7 +16,8 @@ class VQVAE(L.LightningModule):
 				 num_embedding: int,
 				 embedding_dim: int,
 				 commitment_cost: float,
-				 learning_rate: int):
+				 learning_rate: int,
+				 output_dir: str):
 		super(VQVAE, self).__init__()
 
 		self.encoder = Encoder(in_channel=1,
@@ -32,51 +37,112 @@ class VQVAE(L.LightningModule):
 							   num_residual_hidden=num_residual_hidden)
 
 		self.learning_rate = learning_rate
+		self.output_dir = output_dir
 		self.save_hyperparameters()
 
 	def training_step(self, batch, batch_idx):
 		mixed, instruments = batch
-		z = self.conv(self.encoder(mixed))
-		loss, quantized, perplexity, _ = self.vector_quantizer(z)
-		output = self.decoder(quantized)
+		output, loss = self.forward(mixed)
 
-		final_loss = nn.functional.mse_loss(output, instruments) + loss
+		# loss per instruments
+		for i in range(instruments.size(1)):
+			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+
+		# loss on full audio
+		loss += F.mse_loss(input=sum(output.squeeze()), target=mixed.squeeze())
+
 		self.log("train_loss", loss, on_epoch=True, sync_dist=True)
 
-		return final_loss
+		return loss
 
-	def forward(self, batch):
-		x, _ = batch
+	def forward(self, x):
 		z = self.conv(self.encoder(x))
 		loss, quantized, perplexity, _ = self.vector_quantizer(z)
 		output = self.decoder(quantized)
-		return output
+		return output, loss
 
 	def validation_step(self, batch, batch_idx):
 		mixed, instruments = batch
-		z = self.conv(self.encoder(mixed))
-		loss, quantized, perplexity, _ = self.vector_quantizer(z)
-		output = self.decoder(quantized)
+		output, loss = self.forward(mixed)
 
-		final_loss = nn.functional.mse_loss(output, instruments) + loss
-		self.log("val_loss", loss)
+		# loss per instruments
+		for i in range(instruments.size(1)):
+			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
-		return final_loss
+		# loss on full audio
+		loss += F.mse_loss(input=sum(output.squeeze()), target=mixed.squeeze())
+
+		self.log("val_loss", loss, on_epoch=True, sync_dist=True)
+
+		return loss
 
 	def test_step(self, batch, batch_idx):
 		mixed, instruments = batch
-		z = self.conv(self.encoder(mixed))
-		loss, quantized, perplexity, _ = self.vector_quantizer(z)
-		output = self.decoder(quantized)
+		output, loss = self.forward(mixed)
 
-		final_loss = nn.functional.mse_loss(output, instruments) + loss
-		self.log("test_loss", loss)
+		# loss per instruments
+		for i in range(instruments.size(1)):
+			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
-		return final_loss
+		# loss on full audio
+		loss += F.mse_loss(input=sum(output.squeeze()), target=mixed.squeeze())
+
+		self.log("test_loss", loss, on_epoch=True, sync_dist=True)
+
+		return loss
 
 	def configure_optimizers(self):
 		optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, amsgrad=False)
 		return optimizer
+
+	def on_validation_batch_end(self, outputs: torch.Tensor, batch: Any, batch_idx: int, dataloader_idx: int = 0):
+		# only log on the first batch of validation
+		if batch_idx != 0: return
+
+		instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
+
+		with torch.no_grad():
+			mixed, instruments = batch
+			mixed = mixed[0]
+			instruments = instruments[0]
+			output_instruments, _ = self.forward(mixed.unsqueeze(0))
+			output_instruments = output_instruments.squeeze()
+
+			epoch = self.trainer.current_epoch
+			sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate
+
+			data = [[], []]
+			for idx in range(instruments.size(0)):
+				original_file = f'{self.output_dir}/original_{epoch}_{instruments_name[idx]}'
+				decoded_file = f'{self.output_dir}/generated_{epoch}_{instruments_name[idx]}'
+
+				torchaudio.save(uri=original_file,
+								src=instruments[idx].unsqueeze(0).detach().cpu(),
+								sample_rate=sample_rate)
+
+				torchaudio.save(uri=decoded_file,
+								src=output_instruments[idx].unsqueeze(0).detach().cpu(),
+								sample_rate=sample_rate)
+
+				data[0].append(wandb.Audio(str(original_file), sample_rate=sample_rate))
+				data[1].append(wandb.Audio(str(decoded_file), sample_rate=sample_rate))
+
+			original_full_file = f'{self.output_dir}/original_{epoch}_full_song.wav'
+			decoded_full_file = f'{self.output_dir}/generated_{epoch}_full_song.wav'
+
+			torchaudio.save(uri=original_full_file, src=mixed.detach().cpu(), sample_rate=sample_rate)
+			torchaudio.save(uri=decoded_full_file,
+							src=sum(output_instruments).unsqueeze(0).detach().cpu(),
+							sample_rate=sample_rate)
+
+			data[0].append(wandb.Audio(str(original_full_file), sample_rate=sample_rate))
+			data[1].append(wandb.Audio(str(decoded_full_file), sample_rate=sample_rate))
+
+			if isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):
+				columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)',
+						   'mixed vs D(mixed)']
+				table = wandb.Table(columns=columns, data=data)
+				self.logger.log_table({f'demos_{epoch}': table})
 
 
 class ResidualStack(nn.Module):
@@ -119,8 +185,8 @@ class VectorQuantizer(nn.Module):
 		self.commitment_cost = commitment_cost
 
 	def forward(self, inputs):
-		# convert inputs from BCHW -> BHWC
-		inputs = inputs[:,:, None, :].permute(0, 2, 3, 1).contiguous()
+		# convert from BCW -> BWC
+		inputs = inputs.permute(0, 2, 1).contiguous()
 		input_shape = inputs.shape
 
 		# Flatten input
@@ -148,8 +214,8 @@ class VectorQuantizer(nn.Module):
 		avg_probs = torch.mean(encodings, dim=0)
 		perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
 
-		# convert quantized from BHWC -> BCW
-		return loss, quantized.permute(0, 3, 1, 2).squeeze(-2).contiguous(), perplexity, encodings
+		# convert from BWC -> BCW
+		return loss, quantized.permute(0, 2, 1).contiguous(), perplexity, encodings
 
 
 class Encoder(nn.Module):
@@ -170,6 +236,7 @@ class Encoder(nn.Module):
 											num_residual_hidden=num_residual_hidden)
 
 	def forward(self, x):
+		# initial dimension: BCW
 		x = F.relu(self.conv1(x))
 		x = F.relu(self.conv2(x))
 		x = self.conv3(x)
@@ -196,7 +263,7 @@ class Decoder(nn.Module):
 												  out_channels=4,
 												  kernel_size=4,
 												  stride=2,
-												  padding=0)
+												  padding=1)
 
 	def forward(self, x):
 		x = self.conv1(x)
