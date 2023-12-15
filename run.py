@@ -1,17 +1,18 @@
-from __future__ import print_function
-
 import os
 from pathlib import Path
 
 import hydra
 import lightning as L
+import torch
+import wandb
 from lightning.pytorch.callbacks import EarlyStopping
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import DataLoader
 
-from data import SlakhDataset
+from data import SlakhDataModule
 from model import VQVAE
+
+torch.set_float32_matmul_precision('medium')
 
 
 def init(config: DictConfig):
@@ -21,66 +22,59 @@ def init(config: DictConfig):
 	assert Path(config.path.test_dir).exists()
 	assert Path(config.path.val_dir).exists()
 
-	Path(config.path.logging_dir).mkdir(parents=True, exist_ok=True)
-	Path(config.path.output_dir).mkdir(parents=True, exist_ok=True)
-	if config.logger.wandb:
-		Path(config.path.logging_dir + "/wandb").mkdir(parents=True, exist_ok=True)
+	Path(config.path.checkpoint_dir).mkdir(parents=True, exist_ok=True)
 
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
 def main(config: DictConfig):
-	init(config)
+	try:
+		init(config)
 
-	train = DataLoader(SlakhDataset(config.path.train_dir,
-									target_sample_rate=config.data.target_sample_rate,
-									frame_length_sec=config.data.target_frame_length_sec),
-					   batch_size=config.trainer.batch_size,
-					   shuffle=True)
+		data_module = SlakhDataModule(config)
 
-	val = DataLoader(SlakhDataset(config.path.val_dir,
-								  target_sample_rate=config.data.target_sample_rate,
-								  frame_length_sec=config.data.target_frame_length_sec),
-					 batch_size=config.trainer.batch_size,
-					 shuffle=False)
+		model = VQVAE(num_hidden=config.model.num_hidden,
+					  num_residual_layer=config.model.num_residual_layer,
+					  num_residual_hidden=config.model.num_residual_hidden,
+					  num_embedding=config.model.num_embeddings,
+					  embedding_dim=config.model.embedding_dim,
+					  commitment_cost=config.model.commitment_cost,
+					  learning_rate=config.model.learning_rate,
+					  checkpoint_dir=config.path.checkpoint_dir,
+					  batch_size=config.trainer.batch_size)
 
-	test = DataLoader(SlakhDataset(config.path.test_dir,
-								   target_sample_rate=config.data.target_sample_rate,
-								   frame_length_sec=config.data.target_frame_length_sec),
-					  batch_size=config.trainer.batch_size,
-					  shuffle=False)
+		if config.logger.wandb:
+			wandb.finish()
+			logger = WandbLogger(name=config.logger.wandb_name,
+								 project=config.logger.wandb_project_name,
+								 save_dir=config.path.checkpoint_dir,
+								 log_model=False,
+								 offline=config.logger.wandb_offline,
+								 settings=wandb.Settings(init_timeout=300))
+		else:
+			logger = TensorBoardLogger(save_dir=config.path.checkpoint_dir)
 
-	model = VQVAE(num_hidden=config.model.num_hidden,
-				  num_residual_layer=config.model.num_residual_layer,
-				  num_residual_hidden=config.model.num_residual_hidden,
-				  num_embedding=config.model.num_embeddings,
-				  embedding_dim=config.model.embedding_dim,
-				  commitment_cost=config.model.commitment_cost,
-				  learning_rate=config.model.learning_rate,
-				  output_dir=config.path.output_dir)
+		trainer = L.Trainer(max_epochs=config.trainer.max_epochs,
+							default_root_dir=config.path.checkpoint_dir,
+							enable_checkpointing=False,
+							enable_progress_bar=True,
+							callbacks=[EarlyStopping(monitor=config.trainer.early_stopping_monitor,
+													 mode=config.trainer.early_stopping_monitor_mode,
+													 patience=config.trainer.early_stopping_patience)],
+							profiler=config.trainer.profiler,
+							logger=logger,
+							log_every_n_steps=None,
+							# uncomment next 4 rows for debugging
+							# fast_dev_run=True,
+							# accelerator="cpu",
+							# strategy="ddp",
+							# devices=1,
+							)
 
-	if config.logger.wandb:
-		logger = WandbLogger(project=config.logger.wandb_project_name,
-							 save_dir=config.path.logging_dir,
-							 offline=config.logger.wandb_offline)
-	else:
-		logger = TensorBoardLogger(save_dir=config.path.logging_dir)
+		trainer.fit(model=model, datamodule=data_module)
+		trainer.test(model=model, datamodule=data_module)
 
-	trainer = L.Trainer(max_epochs=config.trainer.max_epochs,
-						callbacks=[EarlyStopping(monitor=config.trainer.early_stopping_monitor,
-												 mode=config.trainer.early_stopping_monitor_mode,
-												 patience=config.trainer.early_stopping_patience)],
-						profiler=config.trainer.profiler,
-						logger=logger,
-						# uncomment next 4 rows for debugging
-						# fast_dev_run=True,
-						# accelerator="cpu",
-						# strategy="ddp",
-						# devices=1,
-						)
-
-	trainer.fit(model=model, train_dataloaders=train, val_dataloaders=val)
-	model.eval()
-	trainer.test(model=model, dataloaders=test)
+	finally:
+		wandb.finish()
 
 
 if __name__ == '__main__':

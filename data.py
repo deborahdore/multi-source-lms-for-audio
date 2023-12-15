@@ -1,9 +1,11 @@
 import os
 import random
 
+import lightning as L
 import torch
 import torchaudio
-from torch.utils.data import Dataset
+from omegaconf import DictConfig
+from torch.utils.data import DataLoader, Dataset
 
 
 class SlakhDataset(Dataset):
@@ -22,6 +24,7 @@ class SlakhDataset(Dataset):
 		self.clean_df()
 
 	def clean_df(self):
+		print("[clean_df] Starting dataset cleaning")
 		new_file_paths = []
 		for idx in range(0, len(self.file_paths)):
 			instruments = self.get_stems(idx)
@@ -34,6 +37,7 @@ class SlakhDataset(Dataset):
 			new_file_paths.append(self.file_paths[idx])
 
 		self.file_paths = new_file_paths
+		print("[clean_df] Finished dataset cleaning")
 
 	def get_stems(self, idx: int):
 		instrument_data = []
@@ -53,7 +57,8 @@ class SlakhDataset(Dataset):
 		return torch.stack(instrument_data).squeeze()
 
 	def __len__(self):
-		return len(self.file_paths) * 100
+		augmented_length = len(self.file_paths) * 100
+		return augmented_length
 
 	def resample(self, audio, original_freq):
 		return torchaudio.functional.resample(audio, orig_freq=original_freq, new_freq=self.target_sample_rate)
@@ -77,6 +82,36 @@ class SlakhDataset(Dataset):
 		return mixture_offset, instruments_offset
 
 
-# if __name__ == '__main__':
-# 	data = SlakhDataset("/Users/deborahdore/Documents/multi-source-lms-for-audio/slakh2100/test")
-# 	next(iter(data))
+class SlakhDataModule(L.LightningDataModule):
+	def __init__(self, config: DictConfig):
+		super().__init__()
+		self.test_dataset = None
+		self.train_dataset = None
+		self.val_dataset = None
+		self.config = config
+
+	def setup(self, stage=None):
+		self.train_dataset = SlakhDataset(self.config.path.train_dir,
+										  target_sample_rate=self.config.data.target_sample_rate,
+										  frame_length_sec=self.config.data.target_frame_length_sec)
+
+		self.val_dataset = SlakhDataset(self.config.path.val_dir,
+										target_sample_rate=self.config.data.target_sample_rate,
+										frame_length_sec=self.config.data.target_frame_length_sec)
+
+		self.test_dataset = SlakhDataset(self.config.path.test_dir,
+										 target_sample_rate=self.config.data.target_sample_rate,
+										 frame_length_sec=self.config.data.target_frame_length_sec)
+
+		print(f"[setup] train dataset len: {len(self.train_dataset)}")
+		print(f"[setup] test dataset len: {len(self.test_dataset)}")
+		print(f"[setup] val dataset len: {len(self.val_dataset)}")
+
+	def train_dataloader(self):
+		return DataLoader(self.train_dataset, batch_size=self.config.trainer.batch_size, shuffle=True)
+
+	def val_dataloader(self):
+		return DataLoader(self.val_dataset, batch_size=self.config.trainer.batch_size, shuffle=False)
+
+	def test_dataloader(self):
+		return DataLoader(self.test_dataset, batch_size=self.config.trainer.batch_size, shuffle=False)

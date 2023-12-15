@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torchaudio
 import wandb
 from torch import nn, optim
+from torchmetrics.audio import ScaleInvariantSignalDistortionRatio
 
 
 class VQVAE(L.LightningModule):
@@ -17,7 +18,8 @@ class VQVAE(L.LightningModule):
 				 embedding_dim: int,
 				 commitment_cost: float,
 				 learning_rate: int,
-				 output_dir: str):
+				 checkpoint_dir: str,
+				 batch_size: int):
 		super(VQVAE, self).__init__()
 
 		self.encoder = Encoder(in_channel=1,
@@ -37,23 +39,35 @@ class VQVAE(L.LightningModule):
 							   num_residual_hidden=num_residual_hidden)
 
 		self.learning_rate = learning_rate
-		self.output_dir = output_dir
+		self.checkpoint_dir = checkpoint_dir
+		self.batch_size = batch_size
+
+		self.best_loss = float('inf')
+		self.si_sdr = ScaleInvariantSignalDistortionRatio()
+
 		self.save_hyperparameters()
 
 	def training_step(self, batch, batch_idx):
 		mixed, instruments = batch
-		output, loss = self.forward(mixed)
 
-		# loss per instruments
-		for i in range(instruments.size(-2)):
-			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+		# commitment loss + embedding loss
+		output, loss = self.forward(mixed)
+		mixed_output = torch.einsum('bij-> bj', output)
+		self.log("train/commitment_embedding_loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
+
+		# loss per instrument
+		instruments_loss = 0
+		for i in range(4):
+			instruments_loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+		loss += instruments_loss
+		self.log("train/instrument_loss", instruments_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 
 		# loss on full audio
-		mixed_output = torch.einsum('bij-> bj', output)
-		loss += F.mse_loss(input=mixed_output, target=mixed.squeeze(1))
+		si_sdr_loss = -1 * self.si_sdr(preds=mixed_output, target=mixed.squeeze(1))
+		loss += si_sdr_loss
+		self.log("train/si_sdr_loss", si_sdr_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 
-		self.log("train_loss", loss, on_epoch=True, sync_dist=True)
-
+		self.log("train/loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 		return loss
 
 	def forward(self, x):
@@ -64,34 +78,56 @@ class VQVAE(L.LightningModule):
 
 	def validation_step(self, batch, batch_idx):
 		mixed, instruments = batch
-		output, loss = self.forward(mixed)
 
-		# loss per instruments
-		for i in range(instruments.size(-2)):
-			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+		# commitment loss + embedding loss
+		output, loss = self.forward(mixed)
+		mixed_output = torch.einsum('bij-> bj', output)
+		self.log("validation/commitment_embedding_loss",
+				 loss,
+				 on_epoch=True,
+				 sync_dist=True,
+				 batch_size=self.batch_size)
+
+		# loss per instrument
+		instruments_loss = 0
+		for i in range(4):
+			instruments_loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+		loss += instruments_loss
+		self.log("validation/instrument_loss",
+				 instruments_loss,
+				 on_epoch=True,
+				 sync_dist=True,
+				 batch_size=self.batch_size)
 
 		# loss on full audio
-		mixed_output = torch.einsum('bij-> bj', output)
-		loss += F.mse_loss(input=mixed_output, target=mixed.squeeze(1))
+		si_sdr_loss = -1 * self.si_sdr(preds=mixed_output, target=mixed.squeeze(1))
+		loss += si_sdr_loss
+		self.log("validation/si_sdr_loss", si_sdr_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 
-		self.log("val_loss", loss, on_epoch=True, sync_dist=True)
-
+		self.log("validation/loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 		return loss
 
 	def test_step(self, batch, batch_idx):
 		mixed, instruments = batch
-		output, loss = self.forward(mixed)
 
-		# loss per instruments
-		for i in range(instruments.size(-2)):
-			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+		# commitment loss + embedding loss
+		output, loss = self.forward(mixed)
+		mixed_output = torch.einsum('bij-> bj', output)
+		self.log("test/commitment_embedding_loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
+
+		# loss per instrument
+		instruments_loss = 0
+		for i in range(4):
+			instruments_loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+		loss += instruments_loss
+		self.log("test/instrument_loss", instruments_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 
 		# loss on full audio
-		mixed_output = torch.einsum('bij-> bj', output)
-		loss += F.mse_loss(input=mixed_output, target=mixed.squeeze(1))
+		si_sdr_loss = -1 * self.si_sdr(preds=mixed_output, target=mixed.squeeze(1))
+		loss += si_sdr_loss
+		self.log("test/si_sdr_loss", si_sdr_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 
-		self.log("test_loss", loss, on_epoch=True, sync_dist=True)
-
+		self.log("test/loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 		return loss
 
 	def configure_optimizers(self):
@@ -102,6 +138,14 @@ class VQVAE(L.LightningModule):
 		# only log on the first batch of validation
 		if batch_idx != 0: return
 
+		if outputs.item() < self.best_loss:
+			self.best_loss = outputs.item()
+			self.log("validation/best_loss", self.best_loss)
+			torch.save(self.state_dict(), f'{self.checkpoint_dir}/model.pt')
+
+		if not isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):
+			return
+
 		instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
 
 		with torch.no_grad():
@@ -111,13 +155,13 @@ class VQVAE(L.LightningModule):
 			output_instruments, _ = self.forward(mixed.unsqueeze(0))
 			output_instruments = output_instruments.squeeze()
 
-			epoch = self.trainer.current_epoch
 			sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate
+			epoch = self.trainer.current_epoch
 
 			data = [[], []]
-			for idx in range(instruments.size(0)):
-				original_file = f'{self.output_dir}/original_{epoch}_{instruments_name[idx]}'
-				decoded_file = f'{self.output_dir}/generated_{epoch}_{instruments_name[idx]}'
+			for idx in range(4):
+				original_file = f'{self.checkpoint_dir}/original_{instruments_name[idx]}'
+				decoded_file = f'{self.checkpoint_dir}/generated_{instruments_name[idx]}'
 
 				torchaudio.save(uri=original_file,
 								src=instruments[idx].unsqueeze(0).detach().cpu(),
@@ -130,8 +174,8 @@ class VQVAE(L.LightningModule):
 				data[0].append(wandb.Audio(str(original_file), sample_rate=sample_rate))
 				data[1].append(wandb.Audio(str(decoded_file), sample_rate=sample_rate))
 
-			original_full_file = f'{self.output_dir}/original_{epoch}_full_song.wav'
-			decoded_full_file = f'{self.output_dir}/generated_{epoch}_full_song.wav'
+			original_full_file = f'{self.checkpoint_dir}/original_full_song.wav'
+			decoded_full_file = f'{self.checkpoint_dir}/generated_full_song.wav'
 
 			torchaudio.save(uri=original_full_file, src=mixed.detach().cpu(), sample_rate=sample_rate)
 			torchaudio.save(uri=decoded_full_file,
@@ -141,11 +185,9 @@ class VQVAE(L.LightningModule):
 			data[0].append(wandb.Audio(str(original_full_file), sample_rate=sample_rate))
 			data[1].append(wandb.Audio(str(decoded_full_file), sample_rate=sample_rate))
 
-			if isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):
-				columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)',
-						   'mixed vs D(mixed)']
-				table = wandb.Table(columns=columns, data=data)
-				self.logger.log_table({f'demos_{epoch}': table})
+			columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)',
+					   'mixed vs D(mixed)']
+			self.logger.log_table(key=f'DEMO EPOCH [{epoch}]', columns=columns, data=data)
 
 
 class ResidualStack(nn.Module):
@@ -211,6 +253,7 @@ class VectorQuantizer(nn.Module):
 		# Loss
 		commitment_loss = F.mse_loss(quantized.detach(), inputs)
 		embedding_loss = F.mse_loss(quantized, inputs.detach())
+
 		loss = embedding_loss + self.commitment_cost * commitment_loss
 
 		quantized = inputs + (quantized - inputs).detach()
