@@ -21,7 +21,7 @@ trainer:
   batch_size: 64
   profiler: "simple"
   early_stopping_patience: 20
-  early_stopping_monitor: "val_loss"
+  early_stopping_monitor: "validation/loss"
   early_stopping_monitor_mode: "min"
 logger:
   wandb: True

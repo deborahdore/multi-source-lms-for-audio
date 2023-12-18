@@ -140,7 +140,7 @@ class VQVAE(L.LightningModule):
 
 		if outputs.item() < self.best_loss:
 			self.best_loss = outputs.item()
-			self.log("validation/best_loss", self.best_loss)
+			self.log("validation/best_loss", self.best_loss, sync_dist=True, on_epoch=True, batch_size=self.batch_size)
 			torch.save(self.state_dict(), f'{self.checkpoint_dir}/model.pt')
 
 		if not isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):

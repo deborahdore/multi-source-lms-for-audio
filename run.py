@@ -63,6 +63,9 @@ def main(config: DictConfig):
 							profiler=config.trainer.profiler,
 							logger=logger,
 							log_every_n_steps=None,
+							devices=3,
+							num_nodes=2,
+							accelerator='cuda'
 							# uncomment next 4 rows for debugging
 							# fast_dev_run=True,
 							# accelerator="cpu",
