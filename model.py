@@ -52,20 +52,10 @@ class VQVAE(L.LightningModule):
 
 		# commitment loss + embedding loss
 		output, loss = self.forward(mixed)
-		mixed_output = torch.einsum('bij-> bj', output)
-		self.log("train/commitment_embedding_loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 
 		# loss per instrument
-		instruments_loss = 0
 		for i in range(4):
-			instruments_loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
-		loss += instruments_loss
-		self.log("train/instrument_loss", instruments_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
-
-		# loss on full audio
-		si_sdr_loss = -1 * self.si_sdr(preds=mixed_output, target=mixed.squeeze(1))
-		loss += si_sdr_loss
-		self.log("train/si_sdr_loss", si_sdr_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
+			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
 		self.log("train/loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 		return loss
@@ -79,54 +69,76 @@ class VQVAE(L.LightningModule):
 	def validation_step(self, batch, batch_idx):
 		mixed, instruments = batch
 
-		# commitment loss + embedding loss
 		output, loss = self.forward(mixed)
 		mixed_output = torch.einsum('bij-> bj', output)
+
+		# commitment loss + embedding loss
 		self.log("validation/commitment_embedding_loss",
 				 loss,
 				 on_epoch=True,
 				 sync_dist=True,
 				 batch_size=self.batch_size)
 
-		# loss per instrument
+		# MSE loss per instrument
 		instruments_loss = 0
 		for i in range(4):
 			instruments_loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
-		loss += instruments_loss
+
 		self.log("validation/instrument_loss",
 				 instruments_loss,
 				 on_epoch=True,
 				 sync_dist=True,
 				 batch_size=self.batch_size)
 
-		# loss on full audio
-		si_sdr_loss = -1 * self.si_sdr(preds=mixed_output, target=mixed.squeeze(1))
-		loss += si_sdr_loss
-		self.log("validation/si_sdr_loss", si_sdr_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
+		# SI- SDR loss on combined audio
+		self.log("validation/si_sdr_loss",
+				 -1 * self.si_sdr(preds=mixed_output, target=mixed.squeeze(1)),
+				 on_epoch=True,
+				 sync_dist=True,
+				 batch_size=self.batch_size)
 
+		# MSE loss combined audio
+		self.log("validation/full_audio_loss",
+				 F.mse_loss(input=mixed_output, target=mixed.squeeze(1)),
+				 on_epoch=True,
+				 sync_dist=True,
+				 batch_size=self.batch_size)
+
+		loss += instruments_loss
 		self.log("validation/loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 		return loss
 
 	def test_step(self, batch, batch_idx):
 		mixed, instruments = batch
 
-		# commitment loss + embedding loss
 		output, loss = self.forward(mixed)
 		mixed_output = torch.einsum('bij-> bj', output)
+
+		# commitment loss + embedding loss
 		self.log("test/commitment_embedding_loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 
-		# loss per instrument
+		# MSE loss per instrument
 		instruments_loss = 0
 		for i in range(4):
 			instruments_loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
-		loss += instruments_loss
+
 		self.log("test/instrument_loss", instruments_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 
-		# loss on full audio
-		si_sdr_loss = -1 * self.si_sdr(preds=mixed_output, target=mixed.squeeze(1))
-		loss += si_sdr_loss
-		self.log("test/si_sdr_loss", si_sdr_loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
+		# SI- SDR loss on combined audio
+		self.log("test/si_sdr_loss",
+				 -1 * self.si_sdr(preds=mixed_output, target=mixed.squeeze(1)),
+				 on_epoch=True,
+				 sync_dist=True,
+				 batch_size=self.batch_size)
 
+		# MSE loss combined audio
+		self.log("test/full_audio_loss",
+				 F.mse_loss(input=mixed_output, target=mixed.squeeze(1)),
+				 on_epoch=True,
+				 sync_dist=True,
+				 batch_size=self.batch_size)
+
+		loss += instruments_loss
 		self.log("test/loss", loss, on_epoch=True, sync_dist=True, batch_size=self.batch_size)
 		return loss
 
@@ -135,59 +147,71 @@ class VQVAE(L.LightningModule):
 		return optimizer
 
 	def on_validation_batch_end(self, outputs: torch.Tensor, batch: Any, batch_idx: int, dataloader_idx: int = 0):
-		# only log on the first batch of validation
-		if batch_idx != 0: return
+		try:
+			# only log on the first batch of validation
+			if batch_idx != 0:
+				return
 
-		if outputs.item() < self.best_loss:
-			self.best_loss = outputs.item()
-			self.log("validation/best_loss", self.best_loss, sync_dist=True, on_epoch=True, batch_size=self.batch_size)
-			torch.save(self.state_dict(), f'{self.checkpoint_dir}/model.pt')
+			if outputs.item() < self.best_loss:
+				self.best_loss = outputs.item()
+				self.log("validation/best_loss",
+						 self.best_loss,
+						 sync_dist=True,
+						 on_epoch=True,
+						 batch_size=self.batch_size)  # torch.save(self.state_dict(),
+				# f'{self.checkpoint_dir}/best_loss_model.pt')
 
-		if not isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):
+			if not isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):
+				return
+
+			instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
+
+			with torch.no_grad():
+				mixed, instruments = batch
+				mixed = mixed[0]
+				instruments = instruments[0]
+				output_instruments, _ = self.forward(mixed.unsqueeze(0))
+				output_instruments = output_instruments.squeeze()
+
+				sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate
+				epoch = self.trainer.current_epoch
+
+				data = [[], []]
+				for idx in range(4):
+					original_file = f'{self.checkpoint_dir}/original_{instruments_name[idx]}'
+					decoded_file = f'{self.checkpoint_dir}/generated_{instruments_name[idx]}'
+
+					torchaudio.save(uri=original_file,
+									src=instruments[idx].unsqueeze(0).detach().cpu(),
+									sample_rate=sample_rate)
+
+					torchaudio.save(uri=decoded_file,
+									src=output_instruments[idx].unsqueeze(0).detach().cpu(),
+									sample_rate=sample_rate)
+
+					data[0].append(wandb.Audio(str(original_file), sample_rate=sample_rate))
+					data[1].append(wandb.Audio(str(decoded_file), sample_rate=sample_rate))
+
+				original_full_file = f'{self.checkpoint_dir}/original_full_song.wav'
+				decoded_full_file = f'{self.checkpoint_dir}/generated_full_song.wav'
+
+				torchaudio.save(uri=original_full_file, src=mixed.detach().cpu(), sample_rate=sample_rate)
+				torchaudio.save(uri=decoded_full_file,
+								src=torch.einsum('ij-> j', output_instruments).unsqueeze(0).detach().cpu(),
+								sample_rate=sample_rate)
+
+				data[0].append(wandb.Audio(str(original_full_file), sample_rate=sample_rate))
+				data[1].append(wandb.Audio(str(decoded_full_file), sample_rate=sample_rate))
+
+				columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)',
+						   'mixed vs D(mixed)']
+
+				self.logger.log_table(key=f'DEMO EPOCH [{epoch}]', columns=columns, data=data)
+
+		except Exception:
+			print("CRASHED on_validation_batch_end")
+		finally:
 			return
-
-		instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
-
-		with torch.no_grad():
-			mixed, instruments = batch
-			mixed = mixed[0]
-			instruments = instruments[0]
-			output_instruments, _ = self.forward(mixed.unsqueeze(0))
-			output_instruments = output_instruments.squeeze()
-
-			sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate
-			epoch = self.trainer.current_epoch
-
-			data = [[], []]
-			for idx in range(4):
-				original_file = f'{self.checkpoint_dir}/original_{instruments_name[idx]}'
-				decoded_file = f'{self.checkpoint_dir}/generated_{instruments_name[idx]}'
-
-				torchaudio.save(uri=original_file,
-								src=instruments[idx].unsqueeze(0).detach().cpu(),
-								sample_rate=sample_rate)
-
-				torchaudio.save(uri=decoded_file,
-								src=output_instruments[idx].unsqueeze(0).detach().cpu(),
-								sample_rate=sample_rate)
-
-				data[0].append(wandb.Audio(str(original_file), sample_rate=sample_rate))
-				data[1].append(wandb.Audio(str(decoded_file), sample_rate=sample_rate))
-
-			original_full_file = f'{self.checkpoint_dir}/original_full_song.wav'
-			decoded_full_file = f'{self.checkpoint_dir}/generated_full_song.wav'
-
-			torchaudio.save(uri=original_full_file, src=mixed.detach().cpu(), sample_rate=sample_rate)
-			torchaudio.save(uri=decoded_full_file,
-							src=torch.einsum('ij-> j', output_instruments).unsqueeze(0).detach().cpu(),
-							sample_rate=sample_rate)
-
-			data[0].append(wandb.Audio(str(original_full_file), sample_rate=sample_rate))
-			data[1].append(wandb.Audio(str(decoded_full_file), sample_rate=sample_rate))
-
-			columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)',
-					   'mixed vs D(mixed)']
-			self.logger.log_table(key=f'DEMO EPOCH [{epoch}]', columns=columns, data=data)
 
 
 class ResidualStack(nn.Module):

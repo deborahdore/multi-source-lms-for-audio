@@ -5,7 +5,7 @@ import hydra
 import lightning as L
 import torch
 import wandb
-from lightning.pytorch.callbacks import EarlyStopping
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from omegaconf import DictConfig, OmegaConf
 
@@ -27,57 +27,64 @@ def init(config: DictConfig):
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
 def main(config: DictConfig):
-	try:
-		init(config)
+	print("starting training")
+	init(config)
 
-		data_module = SlakhDataModule(config)
+	data_module = SlakhDataModule(config)
 
-		model = VQVAE(num_hidden=config.model.num_hidden,
-					  num_residual_layer=config.model.num_residual_layer,
-					  num_residual_hidden=config.model.num_residual_hidden,
-					  num_embedding=config.model.num_embeddings,
-					  embedding_dim=config.model.embedding_dim,
-					  commitment_cost=config.model.commitment_cost,
-					  learning_rate=config.model.learning_rate,
-					  checkpoint_dir=config.path.checkpoint_dir,
-					  batch_size=config.trainer.batch_size)
+	model = VQVAE(num_hidden=config.model.num_hidden,
+				  num_residual_layer=config.model.num_residual_layer,
+				  num_residual_hidden=config.model.num_residual_hidden,
+				  num_embedding=config.model.num_embeddings,
+				  embedding_dim=config.model.embedding_dim,
+				  commitment_cost=config.model.commitment_cost,
+				  learning_rate=config.model.learning_rate,
+				  checkpoint_dir=config.path.checkpoint_dir,
+				  batch_size=config.trainer.batch_size)
 
-		if config.logger.wandb:
-			wandb.finish()
-			logger = WandbLogger(name=config.logger.wandb_name,
-								 project=config.logger.wandb_project_name,
-								 save_dir=config.path.checkpoint_dir,
-								 log_model=False,
-								 offline=config.logger.wandb_offline,
-								 settings=wandb.Settings(init_timeout=300))
-		else:
-			logger = TensorBoardLogger(save_dir=config.path.checkpoint_dir)
-
-		trainer = L.Trainer(max_epochs=config.trainer.max_epochs,
-							default_root_dir=config.path.checkpoint_dir,
-							enable_checkpointing=False,
-							enable_progress_bar=True,
-							callbacks=[EarlyStopping(monitor=config.trainer.early_stopping_monitor,
-													 mode=config.trainer.early_stopping_monitor_mode,
-													 patience=config.trainer.early_stopping_patience)],
-							profiler=config.trainer.profiler,
-							logger=logger,
-							log_every_n_steps=None,
-							devices=3,
-							num_nodes=2,
-							accelerator='cuda'
-							# uncomment next 4 rows for debugging
-							# fast_dev_run=True,
-							# accelerator="cpu",
-							# strategy="ddp",
-							# devices=1,
-							)
-
-		trainer.fit(model=model, datamodule=data_module)
-		trainer.test(model=model, datamodule=data_module)
-
-	finally:
+	if config.logger.wandb:
 		wandb.finish()
+		logger = WandbLogger(name=config.logger.wandb_name,
+							 project=config.logger.wandb_project_name,
+							 save_dir=config.path.checkpoint_dir,
+							 log_model=False,
+							 offline=config.logger.wandb_offline,
+							 settings=wandb.Settings(init_timeout=300),
+							 magic=True,
+							 version=config.logger.version if config.trainer.load_from_checkpoint else None,
+							 resume='must' if config.trainer.load_from_checkpoint else None)
+	else:
+		logger = TensorBoardLogger(save_dir=config.path.checkpoint_dir)
+
+	checkpoint_callback = ModelCheckpoint(dirpath=f"{config.path.checkpoint_dir}/",
+										  filename='best_model',
+										  save_last=True)
+
+	early_stopping = EarlyStopping(monitor=config.trainer.early_stopping_monitor,
+								   mode=config.trainer.early_stopping_monitor_mode,
+								   patience=config.trainer.early_stopping_patience)
+
+	trainer = L.Trainer(max_epochs=config.trainer.max_epochs,
+						default_root_dir=config.path.checkpoint_dir,
+						enable_progress_bar=True,
+						callbacks=[early_stopping, checkpoint_callback],
+						profiler=config.trainer.profiler,
+						logger=logger,
+						log_every_n_steps=None,
+						accelerator="gpu"
+						# uncomment next 4 rows for debugging
+						# fast_dev_run=True,
+						# accelerator="cpu",
+						# devices=1,
+						)
+
+	checkpoint_path = None
+	if config.trainer.load_from_checkpoint:
+		checkpoint_path = f"{config.path.checkpoint_dir}/last.ckpt"
+
+	trainer.fit(model=model, datamodule=data_module, ckpt_path=checkpoint_path)
+	model.eval()
+	trainer.test(model=model, datamodule=data_module)
 
 
 if __name__ == '__main__':
