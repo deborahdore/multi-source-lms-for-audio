@@ -191,52 +191,52 @@ class VQVAE(L.LightningModule):
 				self.best_loss = outputs.item()
 				self.log("validation/best_loss", self.best_loss, on_epoch=True)
 
-				if not isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):
-					return
+			if not isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):
+				return
 
-				instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
+			instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
 
-				with torch.no_grad():
-					mixed, instruments = batch
-					mixed = mixed[0]
-					instruments = instruments[0]
-					output_instruments, _ = self.forward(mixed.unsqueeze(0))
-					output_instruments = output_instruments.squeeze()
+			with torch.no_grad():
+				mixed, instruments = batch
+				mixed = mixed[0]
+				instruments = instruments[0]
+				output_instruments, _ = self.forward(mixed.unsqueeze(0))
+				output_instruments = output_instruments.squeeze()
 
-					sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate
-					epoch = self.trainer.current_epoch
+				sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate
+				epoch = self.trainer.current_epoch
 
-					data = [[], []]
-					for idx in range(4):
-						original_file = f'{self.checkpoint_dir}/original_{instruments_name[idx]}'
-						decoded_file = f'{self.checkpoint_dir}/generated_{instruments_name[idx]}'
+				data = [[], []]
+				for idx in range(4):
+					original_file = f'{self.checkpoint_dir}/original_{instruments_name[idx]}'
+					decoded_file = f'{self.checkpoint_dir}/generated_{instruments_name[idx]}'
 
-						torchaudio.save(uri=original_file,
-										src=instruments[idx].unsqueeze(0).detach().cpu(),
-										sample_rate=sample_rate)
-
-						torchaudio.save(uri=decoded_file,
-										src=output_instruments[idx].unsqueeze(0).detach().cpu(),
-										sample_rate=sample_rate)
-
-						data[0].append(wandb.Audio(str(original_file), sample_rate=sample_rate))
-						data[1].append(wandb.Audio(str(decoded_file), sample_rate=sample_rate))
-
-					original_full_file = f'{self.checkpoint_dir}/original_full_song.wav'
-					decoded_full_file = f'{self.checkpoint_dir}/generated_full_song.wav'
-
-					torchaudio.save(uri=original_full_file, src=mixed.detach().cpu(), sample_rate=sample_rate)
-					torchaudio.save(uri=decoded_full_file,
-									src=torch.einsum('ij-> j', output_instruments).unsqueeze(0).detach().cpu(),
+					torchaudio.save(uri=original_file,
+									src=instruments[idx].unsqueeze(0).detach().cpu(),
 									sample_rate=sample_rate)
 
-					data[0].append(wandb.Audio(str(original_full_file), sample_rate=sample_rate))
-					data[1].append(wandb.Audio(str(decoded_full_file), sample_rate=sample_rate))
+					torchaudio.save(uri=decoded_file,
+									src=output_instruments[idx].unsqueeze(0).detach().cpu(),
+									sample_rate=sample_rate)
 
-					columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)',
-							   'mixed vs D(mixed)']
+					data[0].append(wandb.Audio(str(original_file), sample_rate=sample_rate))
+					data[1].append(wandb.Audio(str(decoded_file), sample_rate=sample_rate))
 
-					self.logger.log_table(key=f'DEMO EPOCH [{epoch}]', columns=columns, data=data)
+				original_full_file = f'{self.checkpoint_dir}/original_full_song.wav'
+				decoded_full_file = f'{self.checkpoint_dir}/generated_full_song.wav'
+
+				torchaudio.save(uri=original_full_file, src=mixed.detach().cpu(), sample_rate=sample_rate)
+				torchaudio.save(uri=decoded_full_file,
+								src=torch.einsum('ij-> j', output_instruments).unsqueeze(0).detach().cpu(),
+								sample_rate=sample_rate)
+
+				data[0].append(wandb.Audio(str(original_full_file), sample_rate=sample_rate))
+				data[1].append(wandb.Audio(str(decoded_full_file), sample_rate=sample_rate))
+
+				columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)',
+						   'mixed vs D(mixed)']
+
+				self.logger.log_table(key=f'DEMO EPOCH [{epoch}]', columns=columns, data=data)
 
 		except Exception:
 			print("CRASHED on_validation_batch_end")

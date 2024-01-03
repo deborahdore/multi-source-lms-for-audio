@@ -69,12 +69,10 @@ def main(config: DictConfig):
 						logger=logger,
 						log_every_n_steps=None,
 						accelerator="gpu",
-						# uncomment next 5 rows for debugging
+						# uncomment next rows for debugging
 						# fast_dev_run=True,
 						# accelerator="cpu",
-						# devices=1,
-						# limit_val_batches=0.1,
-						# limit_train_batches=0.1
+						# devices=1
 						)
 
 	checkpoint_path = None
