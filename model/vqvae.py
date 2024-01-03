@@ -8,9 +8,9 @@ from torch import nn as nn, optim
 from torch.nn import functional as F
 from torchmetrics.functional.audio import scale_invariant_signal_distortion_ratio
 
-from decoder import Decoder
-from encoder import Encoder
-from vq import VectorQuantizer
+from model.decoder import Decoder
+from model.encoder import Encoder
+from model.modules import VectorQuantizer
 
 
 class VQVAE(L.LightningModule):
@@ -101,7 +101,8 @@ class VQVAE(L.LightningModule):
 					 on_epoch=True)
 
 			self.log(f"validation/si_sdr_{instrument}_loss",
-					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i, :]),
+					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
+																						   :]).mean(),
 					 on_epoch=True)
 
 			l1_instrument_loss += l1_instruments_loss
@@ -110,7 +111,7 @@ class VQVAE(L.LightningModule):
 
 		# SI-SDR loss on combined audio
 		self.log("validation/si_sdr_full_audio_loss",
-				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)),
+				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)).mean(),
 				 on_epoch=True)
 
 		# MSE loss combined audio
@@ -153,7 +154,8 @@ class VQVAE(L.LightningModule):
 					 on_epoch=True)
 
 			self.log(f"test/si_sdr_{instrument}_loss",
-					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i, :]),
+					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
+																						   :]).mean(),
 					 on_epoch=True)
 
 			l1_instrument_loss += l1_instruments_loss
@@ -162,7 +164,7 @@ class VQVAE(L.LightningModule):
 
 		# SI-SDR loss on combined audio
 		self.log("test/si_sdr_full_audio_loss",
-				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)),
+				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)).mean(),
 				 on_epoch=True)
 
 		# MSE loss combined audio
@@ -240,27 +242,3 @@ class VQVAE(L.LightningModule):
 			print("CRASHED on_validation_batch_end")
 		finally:
 			return
-
-
-class ResidualStack(nn.Module):
-	def __init__(self, in_channel: int, num_hidden: int, num_residual_layer: int, num_residual_hidden: int):
-		super(ResidualStack, self).__init__()
-
-		self.residual_layers = nn.ModuleList([nn.Sequential(nn.ReLU(True),
-															nn.Conv1d(in_channels=in_channel if i == 0 else num_hidden,
-																	  out_channels=num_residual_hidden,
-																	  kernel_size=3,
-																	  stride=1,
-																	  padding=1,
-																	  bias=False),
-															nn.ReLU(True),
-															nn.Conv1d(in_channels=num_residual_hidden,
-																	  out_channels=num_hidden,
-																	  kernel_size=1,
-																	  stride=1,
-																	  bias=False)) for i in range(num_residual_layer)])
-
-	def forward(self, x):
-		for layer in self.residual_layers:
-			x = x + layer(x)
-		return F.relu(x)
