@@ -23,10 +23,10 @@ trainer:
   early_stopping_patience: 20
   early_stopping_monitor: "validation/loss"
   early_stopping_monitor_mode: "min"
-  load_from_checkpoint: True
+  load_from_checkpoint: False
 logger:
   wandb: True
-  wandb_name: "VQ-VAE Test2"
+  wandb_name: "VQ-VAE Test 16 - l1 loss"
   wandb_project_name: "DLAI Experiments"
   wandb_offline: False
-  version:
+  version: 'None'

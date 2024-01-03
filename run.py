@@ -10,7 +10,7 @@ from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from omegaconf import DictConfig, OmegaConf
 
 from data import SlakhDataModule
-from model import VQVAE
+from model.vqvae import VQVAE
 
 torch.set_float32_matmul_precision('medium')
 
@@ -27,7 +27,6 @@ def init(config: DictConfig):
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
 def main(config: DictConfig):
-	print("starting training")
 	init(config)
 
 	data_module = SlakhDataModule(config)
@@ -39,9 +38,7 @@ def main(config: DictConfig):
 				  embedding_dim=config.model.embedding_dim,
 				  commitment_cost=config.model.commitment_cost,
 				  learning_rate=config.model.learning_rate,
-				  checkpoint_dir=config.path.checkpoint_dir,
-				  batch_size=config.trainer.batch_size)
-
+				  checkpoint_dir=config.path.checkpoint_dir)
 	if config.logger.wandb:
 		wandb.finish()
 		logger = WandbLogger(name=config.logger.wandb_name,
@@ -71,11 +68,13 @@ def main(config: DictConfig):
 						profiler=config.trainer.profiler,
 						logger=logger,
 						log_every_n_steps=None,
-						accelerator="gpu"
-						# uncomment next 4 rows for debugging
+						accelerator="gpu",
+						# uncomment next 5 rows for debugging
 						# fast_dev_run=True,
 						# accelerator="cpu",
 						# devices=1,
+						# limit_val_batches=0.1,
+						# limit_train_batches=0.1
 						)
 
 	checkpoint_path = None
@@ -83,7 +82,6 @@ def main(config: DictConfig):
 		checkpoint_path = f"{config.path.checkpoint_dir}/last.ckpt"
 
 	trainer.fit(model=model, datamodule=data_module, ckpt_path=checkpoint_path)
-	model.eval()
 	trainer.test(model=model, datamodule=data_module)
 
 

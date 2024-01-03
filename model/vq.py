@@ -1,0 +1,52 @@
+import torch
+from torch import nn as nn
+from torch.nn import functional as F
+
+
+class VectorQuantizer(nn.Module):
+	"""
+	https://github.com/deepmind/sonnet/blob/v2/sonnet/src/nets/vqvae.py
+	"""
+
+	def __init__(self, num_embedding: int, embedding_dim: int, commitment_cost: float):
+		super(VectorQuantizer, self).__init__()
+
+		self.embedding_dim = embedding_dim
+		self.num_embedding = num_embedding
+
+		self.embedding = nn.Embedding(self.num_embedding, self.embedding_dim)
+		self.embedding.weight.data.uniform_(-1 / self.num_embedding, 1 / self.num_embedding)
+		self.commitment_cost = commitment_cost
+
+	def forward(self, inputs):
+		# convert from BCW -> BWC
+		inputs = torch.einsum('bcw -> bwc', inputs).contiguous()
+		input_shape = inputs.shape
+
+		# Flatten input
+		flat_input = inputs.view(-1, self.embedding_dim)
+
+		# Compute L2 distance between latents and embedding weights
+		distances = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(self.embedding.weight ** 2,
+																				dim=1) - 2 * torch.matmul(flat_input,
+																										  self.embedding.weight.t())
+
+		# Encoding
+		encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+		encodings = torch.zeros(encoding_indices.shape[0], self.num_embedding, device=inputs.device)
+		encodings.scatter_(1, encoding_indices, 1)
+
+		# Quantize and unflatten
+		quantized = torch.matmul(encodings, self.embedding.weight).view(input_shape)
+
+		# Loss
+		commitment_loss = self.commitment_cost * F.mse_loss(quantized.detach(), inputs)
+		embedding_loss = F.mse_loss(quantized, inputs.detach())
+
+		quantized = inputs + (quantized - inputs).detach()
+		avg_probs = torch.mean(encodings, dim=0)
+		perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+		# convert from BWC -> BCW
+		quantized = torch.einsum('bwc -> bcw', quantized).contiguous()
+
+		return embedding_loss, commitment_loss, quantized, perplexity, encodings
