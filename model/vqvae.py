@@ -200,7 +200,7 @@ class VQVAE(L.LightningModule):
 				mixed, instruments = batch
 				mixed = mixed[0]
 				instruments = instruments[0]
-				output_instruments, _ = self.forward(mixed.unsqueeze(0))
+				output_instruments, _, _ = self.forward(mixed.unsqueeze(0))
 				output_instruments = output_instruments.squeeze()
 
 				sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate
