@@ -9,7 +9,8 @@ from torch.utils.data import DataLoader, Dataset
 
 
 class SlakhDataset(Dataset):
-	def __init__(self, data_dir: str, frame_length_sec: int = 3, target_sample_rate: int = 16000):
+	def __init__(self, data_dir: str, frame_length_sec: int, target_sample_rate: int):
+
 		self.data_dir = data_dir
 		self.frame_length_sec = frame_length_sec
 		self.target_sample_rate = target_sample_rate
@@ -22,6 +23,11 @@ class SlakhDataset(Dataset):
 			self.file_paths.append(os.path.join(data_dir, sub_dir))
 
 		self.clean_df()
+
+		# accelerate training
+		self.instruments_dict = {}
+		for idx in range(len(self.file_paths)):
+			self.instruments_dict[idx] = self.get_stems(idx)
 
 	def clean_df(self):
 		print("[clean_df] Starting dataset cleaning")
@@ -64,9 +70,7 @@ class SlakhDataset(Dataset):
 		return torchaudio.functional.resample(audio, orig_freq=original_freq, new_freq=self.target_sample_rate)
 
 	def __getitem__(self, idx: int):
-		idx = idx % len(self.file_paths)
-
-		instruments = self.get_stems(idx)
+		instruments = self.instruments_dict[idx % len(self.file_paths)]
 		mixture = torch.einsum('ij-> j', instruments).unsqueeze(0)
 
 		while True:
@@ -115,3 +119,7 @@ class SlakhDataModule(L.LightningDataModule):
 
 	def test_dataloader(self):
 		return DataLoader(self.test_dataset, batch_size=self.config.trainer.batch_size, shuffle=False)
+
+# if __name__ == '__main__':
+# 	data = SlakhDataset("/Users/deborahdore/Documents/multi-source-lms-for-audio/slakh2100/test")
+# 	next(iter(data))

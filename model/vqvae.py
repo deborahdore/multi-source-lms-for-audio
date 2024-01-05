@@ -56,8 +56,8 @@ class VQVAE(L.LightningModule):
 
 		# loss per instrument
 		for i in range(4):
-			# TRAINING WITH L1 LOSS
-			loss += F.l1_loss(input=output[:, i, :], target=instruments[:, i, :])
+			# TRAINING WITH L2 LOSS
+			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
 		self.log("train/loss", loss, on_epoch=True)
 		return loss
@@ -91,13 +91,13 @@ class VQVAE(L.LightningModule):
 		loss = embedding_loss + commitment_loss
 
 		# loss per instrument
-		l1_instrument_loss = 0
+		instruments_loss = 0
 		for i, instrument in enumerate(instruments_name):
-			l1_instruments_loss = F.l1_loss(input=output[:, i, :], target=instruments[:, i, :])
-			self.log(f"validation/l1_{instrument}_loss", l1_instruments_loss, on_epoch=True)
+			instrument_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+			self.log(f"validation/l2_{instrument}_loss", instrument_loss, on_epoch=True)
 
-			self.log(f"validation/l2_{instrument}_loss",
-					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
+			self.log(f"validation/l1_{instrument}_loss",
+					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_epoch=True)
 
 			self.log(f"validation/si_sdr_{instrument}_loss",
@@ -105,9 +105,9 @@ class VQVAE(L.LightningModule):
 																						   :]).mean(),
 					 on_epoch=True)
 
-			l1_instrument_loss += l1_instruments_loss
+			instruments_loss += instrument_loss
 
-		self.log("validation/l1_instruments_loss", l1_instrument_loss, on_epoch=True)
+		self.log("validation/l2_instruments_loss", instruments_loss, on_epoch=True)
 
 		# SI-SDR loss on combined audio
 		self.log("validation/si_sdr_full_audio_loss",
@@ -123,7 +123,7 @@ class VQVAE(L.LightningModule):
 		self.log("validation/l1_full_audio_loss", F.l1_loss(input=mixed_output, target=mixed.squeeze(1)),
 				 on_epoch=True)
 
-		loss += l1_instrument_loss
+		loss += instruments_loss
 		self.log("validation/loss", loss, on_epoch=True)
 		return loss
 
@@ -144,13 +144,13 @@ class VQVAE(L.LightningModule):
 		loss = embedding_loss + commitment_loss
 
 		# loss per instrument
-		l1_instrument_loss = 0
+		instruments_loss = 0
 		for i, instrument in enumerate(instruments_name):
-			l1_instruments_loss = F.l1_loss(input=output[:, i, :], target=instruments[:, i, :])
-			self.log(f"test/l1_{instrument}_loss", l1_instruments_loss, on_epoch=True)
+			instrument_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+			self.log(f"test/l2_{instrument}_loss", instrument_loss, on_epoch=True)
 
-			self.log(f"test/l2_{instrument}_loss",
-					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
+			self.log(f"test/l1_{instrument}_loss",
+					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_epoch=True)
 
 			self.log(f"test/si_sdr_{instrument}_loss",
@@ -158,9 +158,9 @@ class VQVAE(L.LightningModule):
 																						   :]).mean(),
 					 on_epoch=True)
 
-			l1_instrument_loss += l1_instruments_loss
+			instruments_loss += instrument_loss
 
-		self.log("test/l1_instruments_loss", l1_instrument_loss, on_epoch=True)
+		self.log("test/l2_instruments_loss", instruments_loss, on_epoch=True)
 
 		# SI-SDR loss on combined audio
 		self.log("test/si_sdr_full_audio_loss",
@@ -173,7 +173,7 @@ class VQVAE(L.LightningModule):
 		# L1 loss combined audio
 		self.log("test/l1_full_audio_loss", F.l1_loss(input=mixed_output, target=mixed.squeeze(1)), on_epoch=True)
 
-		loss += l1_instrument_loss
+		loss += instruments_loss
 		self.log("test/loss", loss, on_epoch=True)
 		return loss
 
