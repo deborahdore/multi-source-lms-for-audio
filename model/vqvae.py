@@ -1,6 +1,7 @@
 from typing import Any
 
 import lightning as L
+import pandas as pd
 import torch
 import torchaudio
 import wandb
@@ -22,7 +23,8 @@ class VQVAE(L.LightningModule):
 				 embedding_dim: int,
 				 commitment_cost: float,
 				 learning_rate: int,
-				 checkpoint_dir: str):
+				 checkpoint_dir: str,
+				 codebook_file: str):
 		super(VQVAE, self).__init__()
 
 		self.encoder = Encoder(in_channel=1,
@@ -43,6 +45,7 @@ class VQVAE(L.LightningModule):
 
 		self.learning_rate = learning_rate
 		self.checkpoint_dir = checkpoint_dir
+		self.codebook_file = codebook_file
 		self.best_loss = float('inf')
 		self.save_hyperparameters()
 
@@ -50,35 +53,50 @@ class VQVAE(L.LightningModule):
 		mixed, instruments = batch
 
 		# commitment loss + embedding loss
-		output, embedding_loss, commitment_loss = self.forward(mixed)
+		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
 
 		loss = embedding_loss + commitment_loss
 
+		to_spectrogram = torchaudio.transforms.MelSpectrogram(
+			sample_rate=self.trainer.val_dataloaders.dataset.target_sample_rate,
+			n_fft=400,
+			win_length=400,
+			hop_length=160,
+			n_mels=64).to(mixed.device)
+
 		# loss per instrument
 		for i in range(4):
-			# TRAINING WITH L2 LOSS
-			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+			# TRAINING WITH L2 SPECTROGRAMS LOSS
+			loss += F.l1_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :]))
 
 		self.log("train/loss", loss, on_epoch=True)
+		self.log("train/perplexity", perplexity, on_epoch=True)
 		return loss
 
 	def forward(self, x):
 		z = self.conv(self.encoder(x))
 		embedding_loss, commitment_loss, quantized, perplexity, encodings = self.vector_quantizer(z)
 		output = self.decoder(quantized)
-		return output, embedding_loss, commitment_loss
+		return output, embedding_loss, commitment_loss, perplexity
 
 	@torch.no_grad()
 	def get_quantized(self, x):
 		z = self.conv(self.encoder(x))
-		_, quantized, _, _ = self.vector_quantizer(z)
-		return quantized
+		embedding_loss, commitment_loss, quantized, perplexity, encodings = self.vector_quantizer(z)
+		return quantized, encodings
 
 	def validation_step(self, batch, batch_idx):
 		mixed, instruments = batch
 
-		output, embedding_loss, commitment_loss = self.forward(mixed)
+		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
 		mixed_output = torch.einsum('bij-> bj', output)
+
+		to_spectrogram = torchaudio.transforms.MelSpectrogram(
+			sample_rate=self.trainer.val_dataloaders.dataset.target_sample_rate,
+			n_fft=400,
+			win_length=400,
+			hop_length=160,
+			n_mels=64).to(mixed.device)
 
 		instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
 
@@ -88,13 +106,16 @@ class VQVAE(L.LightningModule):
 		# embedding loss
 		self.log("validation/commitment_loss", commitment_loss, on_epoch=True)
 
+		self.log("validation/perplexity", perplexity, on_epoch=True)
+
 		loss = embedding_loss + commitment_loss
 
 		# loss per instrument
 		instruments_loss = 0
 		for i, instrument in enumerate(instruments_name):
-			instrument_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
-			self.log(f"validation/l2_{instrument}_loss", instrument_loss, on_epoch=True)
+			self.log(f"validation/l2_{instrument}_loss",
+					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
+					 on_epoch=True)
 
 			self.log(f"validation/l1_{instrument}_loss",
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
@@ -105,7 +126,13 @@ class VQVAE(L.LightningModule):
 																						   :]).mean(),
 					 on_epoch=True)
 
-			instruments_loss += instrument_loss
+			self.log(f"validation/spectrogram_l2_{instrument}_loss",
+					 F.mse_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :])),
+					 on_epoch=True)
+
+			# MSE LOSS
+			instruments_loss += F.l1_loss(input=to_spectrogram(output[:, i, :]),
+										   target=to_spectrogram(instruments[:, i, :]))
 
 		self.log("validation/l2_instruments_loss", instruments_loss, on_epoch=True)
 
@@ -130,8 +157,15 @@ class VQVAE(L.LightningModule):
 	def test_step(self, batch, batch_idx):
 		mixed, instruments = batch
 
-		output, embedding_loss, commitment_loss = self.forward(mixed)
+		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
 		mixed_output = torch.einsum('bij-> bj', output)
+
+		to_spectrogram = torchaudio.transforms.MelSpectrogram(
+			sample_rate=self.trainer.val_dataloaders.dataset.target_sample_rate,
+			n_fft=400,
+			win_length=400,
+			hop_length=160,
+			n_mels=64).to(mixed.device)
 
 		instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
 
@@ -141,13 +175,16 @@ class VQVAE(L.LightningModule):
 		# embedding loss
 		self.log("test/commitment_loss", commitment_loss, on_epoch=True)
 
+		self.log("test/perplexity", perplexity, on_epoch=True)
+
 		loss = embedding_loss + commitment_loss
 
 		# loss per instrument
 		instruments_loss = 0
 		for i, instrument in enumerate(instruments_name):
-			instrument_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
-			self.log(f"test/l2_{instrument}_loss", instrument_loss, on_epoch=True)
+			self.log(f"test/l2_{instrument}_loss",
+					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
+					 on_epoch=True)
 
 			self.log(f"test/l1_{instrument}_loss",
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
@@ -158,7 +195,12 @@ class VQVAE(L.LightningModule):
 																						   :]).mean(),
 					 on_epoch=True)
 
-			instruments_loss += instrument_loss
+			self.log(f"test/spectrogram_l2_{instrument}_loss",
+					 F.mse_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :])),
+					 on_epoch=True)
+
+			instruments_loss += F.l1_loss(input=to_spectrogram(output[:, i, :]),
+										   target=to_spectrogram(instruments[:, i, :]))
 
 		self.log("test/l2_instruments_loss", instruments_loss, on_epoch=True)
 
@@ -200,8 +242,8 @@ class VQVAE(L.LightningModule):
 				mixed, instruments = batch
 				mixed = mixed[0]
 				instruments = instruments[0]
-				output_instruments, _, _ = self.forward(mixed.unsqueeze(0))
-				output_instruments = output_instruments.squeeze()
+				output = self.forward(mixed.unsqueeze(0))
+				output_instruments = output[0].squeeze()
 
 				sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate
 				epoch = self.trainer.current_epoch
@@ -242,3 +284,8 @@ class VQVAE(L.LightningModule):
 			print("CRASHED on_validation_batch_end")
 		finally:
 			return
+
+	def on_train_end(self):
+		codebook_weights = self.vector_quantizer.codebook.weight.data.cpu().numpy()
+		codebook_dataframe = pd.DataFrame(codebook_weights)
+		codebook_dataframe.to_csv(self.codebook_file)

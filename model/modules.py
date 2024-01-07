@@ -14,8 +14,10 @@ class VectorQuantizer(nn.Module):
 		self.embedding_dim = embedding_dim
 		self.num_embedding = num_embedding
 
-		self.embedding = nn.Embedding(self.num_embedding, self.embedding_dim)
-		self.embedding.weight.data.uniform_(-1 / self.num_embedding, 1 / self.num_embedding)
+		# codebook
+		self.codebook = nn.Embedding(self.num_embedding, self.embedding_dim)
+		self.codebook.weight.data.uniform_(-1 / self.num_embedding, 1 / self.num_embedding)
+
 		self.commitment_cost = commitment_cost
 
 	def forward(self, inputs):
@@ -27,9 +29,9 @@ class VectorQuantizer(nn.Module):
 		flat_input = inputs.view(-1, self.embedding_dim)
 
 		# Compute L2 distance between latents and embedding weights
-		distances = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(self.embedding.weight ** 2,
+		distances = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(self.codebook.weight ** 2,
 																				dim=1) - 2 * torch.matmul(flat_input,
-																										  self.embedding.weight.t())
+																										  self.codebook.weight.t())
 
 		# Encoding
 		encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
@@ -37,7 +39,7 @@ class VectorQuantizer(nn.Module):
 		encodings.scatter_(1, encoding_indices, 1)
 
 		# Quantize and unflatten
-		quantized = torch.matmul(encodings, self.embedding.weight).view(input_shape)
+		quantized = torch.matmul(encodings, self.codebook.weight).view(input_shape)
 
 		# Loss
 		commitment_loss = self.commitment_cost * F.mse_loss(quantized.detach(), inputs)

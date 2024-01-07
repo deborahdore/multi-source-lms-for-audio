@@ -1,10 +1,12 @@
 path:
   absolute_path: ${base_dir:x}
-  dataset_dir: ${path.absolute_path}/slakh2100
+  dataset_dir: ${path.absolute_path}/../slakh2100
   train_dir: ${path.dataset_dir}/train
   test_dir: ${path.dataset_dir}/test
   val_dir: ${path.dataset_dir}/validation
   checkpoint_dir: ${path.absolute_path}/checkpoint
+  plot_dir: ${path.absolute_path}/plots
+  codebook_file: ${path.absolute_path}/codebook.csv
 model:
   num_hidden: 128
   num_residual_hidden: 32
@@ -14,7 +16,7 @@ model:
   commitment_cost: 1
   learning_rate: 1e-4
 data:
-  target_sample_rate: 22050
+  target_sample_rate: 22000
   target_frame_length_sec: 3
 trainer:
   max_epochs: 200
@@ -26,7 +28,7 @@ trainer:
   load_from_checkpoint: False
 logger:
   wandb: True
-  wandb_name: "VQ-VAE Test 22 - l2 loss"
+  wandb_name: "VQ-VAE - SPEC/l1/22"
   wandb_project_name: "DLAI Experiments"
   wandb_offline: False
   version: 'None'

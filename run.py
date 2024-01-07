@@ -8,9 +8,11 @@ import wandb
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader
 
-from data import SlakhDataModule
+from data import SlakhDataModule, SlakhDataset
 from model.vqvae import VQVAE
+from utils import plot_spectrogram, plot_waveform
 
 torch.set_float32_matmul_precision('medium')
 
@@ -23,10 +25,11 @@ def init(config: DictConfig):
 	assert Path(config.path.val_dir).exists()
 
 	Path(config.path.checkpoint_dir).mkdir(parents=True, exist_ok=True)
+	# Path(config.path.plot_dir).mkdir(parents=True, exist_ok=True)
 
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
-def main(config: DictConfig):
+def train(config: DictConfig):
 	init(config)
 
 	data_module = SlakhDataModule(config)
@@ -38,7 +41,9 @@ def main(config: DictConfig):
 				  embedding_dim=config.model.embedding_dim,
 				  commitment_cost=config.model.commitment_cost,
 				  learning_rate=config.model.learning_rate,
-				  checkpoint_dir=config.path.checkpoint_dir)
+				  checkpoint_dir=config.path.checkpoint_dir,
+				  codebook_file=config.path.codebook_file)
+
 	if config.logger.wandb:
 		wandb.finish()
 		logger = WandbLogger(name=config.logger.wandb_name,
@@ -70,10 +75,11 @@ def main(config: DictConfig):
 						log_every_n_steps=None,
 						accelerator="gpu",
 						# uncomment next rows for debugging
-						# fast_dev_run=True,
 						# accelerator="cpu",
+						# fast_dev_run=True,
 						# devices=1
 						)
+
 
 	checkpoint_path = None
 	if config.trainer.load_from_checkpoint:
@@ -83,5 +89,26 @@ def main(config: DictConfig):
 	trainer.test(model=model, datamodule=data_module)
 
 
+@hydra.main(version_base=None, config_path=".", config_name="config")
+def visualize(config: DictConfig):
+	init(config)
+
+	dataset = SlakhDataset(config.path.test_dir,
+						   frame_length_sec=config.data.target_frame_length_sec,
+						   target_sample_rate=config.data.target_sample_rate)
+
+	dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+
+	instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
+	mixed, instruments = next(iter(dataloader))
+	for idx, instrument_name in enumerate(instruments_name):
+		plot_spectrogram(instruments[:, idx, :], plot_dir=config.path.plot_dir, title=instrument_name.split(".")[0])
+		plot_waveform(instruments[:, idx, :], plot_dir=config.path.plot_dir, title=instrument_name.split(".")[0])
+
+	plot_spectrogram(mixed.squeeze(0), plot_dir=config.path.plot_dir, title="song")
+	plot_waveform(mixed.squeeze(0), plot_dir=config.path.plot_dir, title="song")
+
+
 if __name__ == '__main__':
-	main()
+	train()
+	# visualize()

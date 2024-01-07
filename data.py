@@ -119,7 +119,3 @@ class SlakhDataModule(L.LightningDataModule):
 
 	def test_dataloader(self):
 		return DataLoader(self.test_dataset, batch_size=self.config.trainer.batch_size, shuffle=False)
-
-# if __name__ == '__main__':
-# 	data = SlakhDataset("/Users/deborahdore/Documents/multi-source-lms-for-audio/slakh2100/test")
-# 	next(iter(data))
