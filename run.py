@@ -25,7 +25,9 @@ def init(config: DictConfig):
 	assert Path(config.path.val_dir).exists()
 
 	Path(config.path.checkpoint_dir).mkdir(parents=True, exist_ok=True)
-	# Path(config.path.plot_dir).mkdir(parents=True, exist_ok=True)
+
+
+# Path(config.path.plot_dir).mkdir(parents=True, exist_ok=True)
 
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
@@ -80,7 +82,6 @@ def train(config: DictConfig):
 						# devices=1
 						)
 
-
 	checkpoint_path = None
 	if config.trainer.load_from_checkpoint:
 		checkpoint_path = f"{config.path.checkpoint_dir}/last.ckpt"
@@ -110,5 +111,4 @@ def visualize(config: DictConfig):
 
 
 if __name__ == '__main__':
-	train()
-	# visualize()
+	train()  # visualize()

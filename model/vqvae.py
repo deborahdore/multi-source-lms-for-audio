@@ -66,7 +66,7 @@ class VQVAE(L.LightningModule):
 
 		# loss per instrument
 		for i in range(4):
-			# TRAINING WITH L2 SPECTROGRAMS LOSS
+			# TRAINING WITH L1 SPECTROGRAMS LOSS
 			loss += F.l1_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :]))
 
 		self.log("train/loss", loss, on_epoch=True)
@@ -98,7 +98,7 @@ class VQVAE(L.LightningModule):
 			hop_length=160,
 			n_mels=64).to(mixed.device)
 
-		instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
+		instruments_name = ["bass", "drums", "guitar", "piano"]
 
 		# commitment loss
 		self.log("validation/embedding_loss", embedding_loss, on_epoch=True)
@@ -121,7 +121,7 @@ class VQVAE(L.LightningModule):
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_epoch=True)
 
-			self.log(f"validation/si_sdr_{instrument}_loss",
+			self.log(f"validation/si_sdr_{instrument}_measure",
 					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
 																						   :]).mean(),
 					 on_epoch=True)
@@ -130,14 +130,14 @@ class VQVAE(L.LightningModule):
 					 F.mse_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :])),
 					 on_epoch=True)
 
-			# MSE LOSS
+			# SPEC L1 LOSS
 			instruments_loss += F.l1_loss(input=to_spectrogram(output[:, i, :]),
-										   target=to_spectrogram(instruments[:, i, :]))
+										  target=to_spectrogram(instruments[:, i, :]))
 
 		self.log("validation/l2_instruments_loss", instruments_loss, on_epoch=True)
 
 		# SI-SDR loss on combined audio
-		self.log("validation/si_sdr_full_audio_loss",
+		self.log("validation/si_sdr_full_audio_measure",
 				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)).mean(),
 				 on_epoch=True)
 
@@ -167,7 +167,7 @@ class VQVAE(L.LightningModule):
 			hop_length=160,
 			n_mels=64).to(mixed.device)
 
-		instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
+		instruments_name = ["bass", "drums", "guitar", "piano"]
 
 		# commitment loss
 		self.log("test/embedding_loss", embedding_loss, on_epoch=True)
@@ -190,7 +190,7 @@ class VQVAE(L.LightningModule):
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_epoch=True)
 
-			self.log(f"test/si_sdr_{instrument}_loss",
+			self.log(f"test/si_sdr_{instrument}_measure",
 					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
 																						   :]).mean(),
 					 on_epoch=True)
@@ -199,13 +199,14 @@ class VQVAE(L.LightningModule):
 					 F.mse_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :])),
 					 on_epoch=True)
 
+			# SPEC L1 LOSS
 			instruments_loss += F.l1_loss(input=to_spectrogram(output[:, i, :]),
-										   target=to_spectrogram(instruments[:, i, :]))
+										  target=to_spectrogram(instruments[:, i, :]))
 
 		self.log("test/l2_instruments_loss", instruments_loss, on_epoch=True)
 
 		# SI-SDR loss on combined audio
-		self.log("test/si_sdr_full_audio_loss",
+		self.log("test/si_sdr_full_audio_measure",
 				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)).mean(),
 				 on_epoch=True)
 
@@ -236,7 +237,7 @@ class VQVAE(L.LightningModule):
 			if not isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):
 				return
 
-			instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
+			instruments_name = ["bass", "drums", "guitar", "piano"]
 
 			with torch.no_grad():
 				mixed, instruments = batch
@@ -250,8 +251,8 @@ class VQVAE(L.LightningModule):
 
 				data = [[], []]
 				for idx in range(4):
-					original_file = f'{self.checkpoint_dir}/original_{instruments_name[idx]}'
-					decoded_file = f'{self.checkpoint_dir}/generated_{instruments_name[idx]}'
+					original_file = f'{self.checkpoint_dir}/original_{instruments_name[idx]}.wav'
+					decoded_file = f'{self.checkpoint_dir}/generated_{instruments_name[idx]}.wav'
 
 					torchaudio.save(uri=original_file,
 									src=instruments[idx].unsqueeze(0).detach().cpu(),

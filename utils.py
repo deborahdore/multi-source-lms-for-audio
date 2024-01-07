@@ -44,7 +44,7 @@ def plot_embeddings_from_quantized(config: DictConfig, input: torch.Tensor):
 	plt.show()
 
 
-def plot_waveform(waveform: torch.Tensor, plot_dir:str, sample_rate: int = 22050, title:str = None):
+def plot_waveform(waveform: torch.Tensor, plot_dir: str, sample_rate: int = 22050, title: str = None):
 	# Calculate the time axis for the waveform
 	total_samples = waveform.shape[1]
 	time_axis = torch.arange(0, total_samples) / sample_rate
@@ -59,7 +59,8 @@ def plot_waveform(waveform: torch.Tensor, plot_dir:str, sample_rate: int = 22050
 	# plt.show()
 	plt.savefig(f"{plot_dir}/{title}_waveform.svg")
 
-def plot_spectrogram(waveform: torch.Tensor, plot_dir:str, sample_rate: int = 22050, title:str = None):
+
+def plot_spectrogram(waveform: torch.Tensor, plot_dir: str, sample_rate: int = 22050, title: str = None):
 	# Compute the Mel spectrogram
 	mel_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,
 														   n_fft=400,

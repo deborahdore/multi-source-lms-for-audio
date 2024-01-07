@@ -63,7 +63,7 @@ class SlakhDataset(Dataset):
 		return torch.stack(instrument_data).squeeze()
 
 	def __len__(self):
-		augmented_length = len(self.file_paths) * 100
+		augmented_length = len(self.file_paths) * 1000
 		return augmented_length
 
 	def resample(self, audio, original_freq):
