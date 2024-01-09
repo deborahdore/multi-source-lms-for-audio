@@ -22,13 +22,13 @@ trainer:
   max_epochs: 200
   batch_size: 64
   profiler: "simple"
-  early_stopping_patience: 15
+  early_stopping_patience: 5
   early_stopping_monitor: "validation/loss"
   early_stopping_monitor_mode: "min"
   load_from_checkpoint: False
 logger:
   wandb: True
-  wandb_name: "VQ-VAE - SPEC/l1/22"
+  wandb_name: "VQ-VAE - MSE/22 - Different Importance"
   wandb_project_name: "DLAI Experiments"
   wandb_offline: False
   version: 'None'

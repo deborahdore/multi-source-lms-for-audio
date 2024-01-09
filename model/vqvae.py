@@ -1,6 +1,7 @@
 from typing import Any
 
 import lightning as L
+import numpy as np
 import pandas as pd
 import torch
 import torchaudio
@@ -12,6 +13,8 @@ from torchmetrics.functional.audio import scale_invariant_signal_distortion_rati
 from model.decoder import Decoder
 from model.encoder import Encoder
 from model.modules import VectorQuantizer
+
+""" Main model that initializes training/validation/test phases """
 
 
 class VQVAE(L.LightningModule):
@@ -47,9 +50,12 @@ class VQVAE(L.LightningModule):
 		self.checkpoint_dir = checkpoint_dir
 		self.codebook_file = codebook_file
 		self.best_loss = float('inf')
+		self.weights = [0.25] * 4
+		self.matrix_loss_per_instrument = []
 		self.save_hyperparameters()
 
 	def training_step(self, batch, batch_idx):
+		""" Training step with l2 loss on each instrument """
 		mixed, instruments = batch
 
 		# commitment loss + embedding loss
@@ -57,23 +63,28 @@ class VQVAE(L.LightningModule):
 
 		loss = embedding_loss + commitment_loss
 
-		to_spectrogram = torchaudio.transforms.MelSpectrogram(
-			sample_rate=self.trainer.val_dataloaders.dataset.target_sample_rate,
-			n_fft=400,
-			win_length=400,
-			hop_length=160,
-			n_mels=64).to(mixed.device)
-
 		# loss per instrument
 		for i in range(4):
-			# TRAINING WITH L1 SPECTROGRAMS LOSS
-			loss += F.l1_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :]))
+			mse_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+			# to improve the sound of each instrument
+			si_sdr_loss = -1 * scale_invariant_signal_distortion_ratio(preds=output[:, i, :],
+																	   target=instruments[:, i, :]).mean()
+			loss += mse_loss + self.weights[i] * si_sdr_loss
 
 		self.log("train/loss", loss, on_epoch=True)
 		self.log("train/perplexity", perplexity, on_epoch=True)
 		return loss
 
+	def validation_step(self, batch, batch_idx):
+		""" Validation step that calculates: l1, l2, si-sdr, l1 and l2 on spectrogram and logs them """
+		return self.calculate_loss(batch, "validation")
+
+	def test_step(self, batch, batch_idx):
+		""" Test step that calculates different measures: l1, l2, si-sdr, l1 and l2 on spectrogram and logs them """
+		return self.calculate_loss(batch, "test")
+
 	def forward(self, x):
+		""" Forward function that carries out the main operations """
 		z = self.conv(self.encoder(x))
 		embedding_loss, commitment_loss, quantized, perplexity, encodings = self.vector_quantizer(z)
 		output = self.decoder(quantized)
@@ -81,13 +92,14 @@ class VQVAE(L.LightningModule):
 
 	@torch.no_grad()
 	def get_quantized(self, x):
+		""" Used during inference to retrieve the quantized representation of an input """
 		z = self.conv(self.encoder(x))
 		embedding_loss, commitment_loss, quantized, perplexity, encodings = self.vector_quantizer(z)
 		return quantized, encodings
 
-	def validation_step(self, batch, batch_idx):
+	def calculate_loss(self, batch, mode: str):
+		""" Calculates losses during validation and testing step """
 		mixed, instruments = batch
-
 		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
 		mixed_output = torch.einsum('bij-> bj', output)
 
@@ -101,130 +113,71 @@ class VQVAE(L.LightningModule):
 		instruments_name = ["bass", "drums", "guitar", "piano"]
 
 		# commitment loss
-		self.log("validation/embedding_loss", embedding_loss, on_epoch=True)
+		self.log(f"{mode}/embedding_loss", embedding_loss, on_epoch=True)
 
 		# embedding loss
-		self.log("validation/commitment_loss", commitment_loss, on_epoch=True)
+		self.log(f"{mode}/commitment_loss", commitment_loss, on_epoch=True)
 
-		self.log("validation/perplexity", perplexity, on_epoch=True)
+		self.log(f"{mode}/perplexity", perplexity, on_epoch=True)
 
 		loss = embedding_loss + commitment_loss
 
 		# loss per instrument
-		instruments_loss = 0
+		new_weights_loss_per_instrument = []
 		for i, instrument in enumerate(instruments_name):
-			self.log(f"validation/l2_{instrument}_loss",
+			mse_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+			# to improve the sound of each instrument
+			si_sdr_loss = -1 * scale_invariant_signal_distortion_ratio(preds=output[:, i, :],
+																	   target=instruments[:, i, :]).mean()
+
+			# calculate total loss per instrument
+			instruments_loss = mse_loss + self.weights[i] * si_sdr_loss
+			# append calculated loss to list in order to compute new weights after
+			new_weights_loss_per_instrument.append(instruments_loss.item())
+			# add to total loss
+			loss += instruments_loss
+
+			self.log(f"{mode}/l2_{instrument}_loss",
 					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_epoch=True)
 
-			self.log(f"validation/l1_{instrument}_loss",
+			self.log(f"{mode}/l1_{instrument}_loss",
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_epoch=True)
 
-			self.log(f"validation/si_sdr_{instrument}_measure",
+			self.log(f"{mode}/si_sdr_{instrument}_measure",
 					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
 																						   :]).mean(),
 					 on_epoch=True)
 
-			self.log(f"validation/spectrogram_l2_{instrument}_loss",
+			self.log(f"{mode}/spectrogram_l2_{instrument}_loss",
 					 F.mse_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :])),
 					 on_epoch=True)
 
-			# SPEC L1 LOSS
-			instruments_loss += F.l1_loss(input=to_spectrogram(output[:, i, :]),
-										  target=to_spectrogram(instruments[:, i, :]))
-
-		self.log("validation/l2_instruments_loss", instruments_loss, on_epoch=True)
+		self.matrix_loss_per_instrument.append(new_weights_loss_per_instrument)
 
 		# SI-SDR loss on combined audio
-		self.log("validation/si_sdr_full_audio_measure",
+		self.log(f"{mode}/si_sdr_full_audio_measure",
 				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)).mean(),
 				 on_epoch=True)
 
 		# MSE loss combined audio
-		self.log("validation/l2_full_audio_loss",
-				 F.mse_loss(input=mixed_output, target=mixed.squeeze(1)),
-				 on_epoch=True)
+		self.log(f"{mode}/l2_full_audio_loss", F.mse_loss(input=mixed_output, target=mixed.squeeze(1)), on_epoch=True)
 
 		# L1 loss combined audio
-		self.log("validation/l1_full_audio_loss", F.l1_loss(input=mixed_output, target=mixed.squeeze(1)),
-				 on_epoch=True)
+		self.log(f"{mode}/l1_full_audio_loss", F.l1_loss(input=mixed_output, target=mixed.squeeze(1)), on_epoch=True)
 
-		loss += instruments_loss
-		self.log("validation/loss", loss, on_epoch=True)
-		return loss
+		self.log(f"{mode}/loss", loss, on_epoch=True)
 
-	def test_step(self, batch, batch_idx):
-		mixed, instruments = batch
-
-		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
-		mixed_output = torch.einsum('bij-> bj', output)
-
-		to_spectrogram = torchaudio.transforms.MelSpectrogram(
-			sample_rate=self.trainer.val_dataloaders.dataset.target_sample_rate,
-			n_fft=400,
-			win_length=400,
-			hop_length=160,
-			n_mels=64).to(mixed.device)
-
-		instruments_name = ["bass", "drums", "guitar", "piano"]
-
-		# commitment loss
-		self.log("test/embedding_loss", embedding_loss, on_epoch=True)
-
-		# embedding loss
-		self.log("test/commitment_loss", commitment_loss, on_epoch=True)
-
-		self.log("test/perplexity", perplexity, on_epoch=True)
-
-		loss = embedding_loss + commitment_loss
-
-		# loss per instrument
-		instruments_loss = 0
-		for i, instrument in enumerate(instruments_name):
-			self.log(f"test/l2_{instrument}_loss",
-					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
-					 on_epoch=True)
-
-			self.log(f"test/l1_{instrument}_loss",
-					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
-					 on_epoch=True)
-
-			self.log(f"test/si_sdr_{instrument}_measure",
-					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
-																						   :]).mean(),
-					 on_epoch=True)
-
-			self.log(f"test/spectrogram_l2_{instrument}_loss",
-					 F.mse_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :])),
-					 on_epoch=True)
-
-			# SPEC L1 LOSS
-			instruments_loss += F.l1_loss(input=to_spectrogram(output[:, i, :]),
-										  target=to_spectrogram(instruments[:, i, :]))
-
-		self.log("test/l2_instruments_loss", instruments_loss, on_epoch=True)
-
-		# SI-SDR loss on combined audio
-		self.log("test/si_sdr_full_audio_measure",
-				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)).mean(),
-				 on_epoch=True)
-
-		# MSE loss combined audio
-		self.log("test/l2_full_audio_loss", F.mse_loss(input=mixed_output, target=mixed.squeeze(1)), on_epoch=True)
-
-		# L1 loss combined audio
-		self.log("test/l1_full_audio_loss", F.l1_loss(input=mixed_output, target=mixed.squeeze(1)), on_epoch=True)
-
-		loss += instruments_loss
-		self.log("test/loss", loss, on_epoch=True)
 		return loss
 
 	def configure_optimizers(self):
+		""" Configure Adam Optimizer for training """
 		optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, amsgrad=False)
 		return optimizer
 
 	def on_validation_batch_end(self, outputs: torch.Tensor, batch: Any, batch_idx: int, dataloader_idx: int = 0):
+		""" At the end of the validation step, for each epoch, log an example of input and output of the model """
 		try:
 			# only log on the first batch of validation
 			if batch_idx != 0:
@@ -286,7 +239,18 @@ class VQVAE(L.LightningModule):
 		finally:
 			return
 
-	def on_train_end(self):
+	def on_train_epoch_end(self):
+		""" At the end of each epoch save the codebook """
 		codebook_weights = self.vector_quantizer.codebook.weight.data.cpu().numpy()
 		codebook_dataframe = pd.DataFrame(codebook_weights)
 		codebook_dataframe.to_csv(self.codebook_file)
+
+	def on_validation_epoch_end(self):
+		""" Calculate new weights """
+		mean_losses = torch.einsum("ij -> j",
+								   torch.tensor(self.matrix_loss_per_instrument) / len(
+									   self.matrix_loss_per_instrument))
+
+		avg = torch.mean(mean_losses)
+		self.weights = [0.25 * (loss / avg) for loss in mean_losses]
+		self.matrix_loss_per_instrument = []
