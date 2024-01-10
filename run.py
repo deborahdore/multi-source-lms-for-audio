@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 from data import SlakhDataModule, SlakhDataset
 from model.vqvae import VQVAE
-from utils import plot_spectrogram, plot_waveform
+from utils import plot_embeddings_from_quantized, plot_spectrogram, plot_waveform
 
 torch.set_float32_matmul_precision('medium')
 
@@ -25,9 +25,7 @@ def init(config: DictConfig):
 	assert Path(config.path.val_dir).exists()
 
 	Path(config.path.checkpoint_dir).mkdir(parents=True, exist_ok=True)
-
-
-# Path(config.path.plot_dir).mkdir(parents=True, exist_ok=True)
+	Path(config.path.plot_dir).mkdir(parents=True, exist_ok=True)
 
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
@@ -61,6 +59,9 @@ def train(config: DictConfig):
 		logger = TensorBoardLogger(save_dir=config.path.checkpoint_dir)
 
 	checkpoint_callback = ModelCheckpoint(dirpath=f"{config.path.checkpoint_dir}/",
+										  monitor='validation/loss',
+										  mode='min',
+										  save_top_k=2,
 										  filename='best_model',
 										  save_last=True)
 
@@ -69,6 +70,7 @@ def train(config: DictConfig):
 								   patience=config.trainer.early_stopping_patience)
 
 	trainer = L.Trainer(max_epochs=config.trainer.max_epochs,
+						min_epochs=config.trainer.min_epochs,
 						default_root_dir=config.path.checkpoint_dir,
 						enable_progress_bar=True,
 						callbacks=[early_stopping, checkpoint_callback],
@@ -84,10 +86,10 @@ def train(config: DictConfig):
 
 	checkpoint_path = None
 	if config.trainer.load_from_checkpoint:
-		checkpoint_path = f"{config.path.checkpoint_dir}/last.ckpt"
+		checkpoint_path = f"{config.path.checkpoint_dir}/best_model.ckpt"
 
 	trainer.fit(model=model, datamodule=data_module, ckpt_path=checkpoint_path)
-	trainer.test(model=model, datamodule=data_module)
+	trainer.test(model=model, datamodule=data_module, ckpt_path=f"{config.path.checkpoint_dir}/best_model.ckpt")
 
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
@@ -102,6 +104,8 @@ def visualize(config: DictConfig):
 
 	instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
 	mixed, instruments = next(iter(dataloader))
+	plot_embeddings_from_quantized(config, (mixed, instruments))
+
 	for idx, instrument_name in enumerate(instruments_name):
 		plot_spectrogram(instruments[:, idx, :], plot_dir=config.path.plot_dir, title=instrument_name.split(".")[0])
 		plot_waveform(instruments[:, idx, :], plot_dir=config.path.plot_dir, title=instrument_name.split(".")[0])

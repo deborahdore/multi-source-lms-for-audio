@@ -16,19 +16,20 @@ model:
   commitment_cost: 1
   learning_rate: 1e-4
 data:
-  target_sample_rate: 22000
+  target_sample_rate: 25000
   target_frame_length_sec: 3
 trainer:
-  max_epochs: 200
+  max_epochs: 60
+  min_epochs: 30
   batch_size: 64
   profiler: "simple"
-  early_stopping_patience: 5
+  early_stopping_patience: 10
   early_stopping_monitor: "validation/loss"
   early_stopping_monitor_mode: "min"
   load_from_checkpoint: False
 logger:
   wandb: True
-  wandb_name: "VQ-VAE - MSE/22 - Different Importance"
+  wandb_name: "VQ-VAE - MSE/22 - Test2"
   wandb_project_name: "DLAI Experiments"
   wandb_offline: False
   version: 'None'

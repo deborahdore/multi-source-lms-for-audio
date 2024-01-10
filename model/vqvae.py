@@ -1,7 +1,6 @@
 from typing import Any
 
 import lightning as L
-import numpy as np
 import pandas as pd
 import torch
 import torchaudio
@@ -50,8 +49,6 @@ class VQVAE(L.LightningModule):
 		self.checkpoint_dir = checkpoint_dir
 		self.codebook_file = codebook_file
 		self.best_loss = float('inf')
-		self.weights = [0.25] * 4
-		self.matrix_loss_per_instrument = []
 		self.save_hyperparameters()
 
 	def training_step(self, batch, batch_idx):
@@ -65,11 +62,7 @@ class VQVAE(L.LightningModule):
 
 		# loss per instrument
 		for i in range(4):
-			mse_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
-			# to improve the sound of each instrument
-			si_sdr_loss = -1 * scale_invariant_signal_distortion_ratio(preds=output[:, i, :],
-																	   target=instruments[:, i, :]).mean()
-			loss += mse_loss + self.weights[i] * si_sdr_loss
+			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
 		self.log("train/loss", loss, on_epoch=True)
 		self.log("train/perplexity", perplexity, on_epoch=True)
@@ -98,17 +91,19 @@ class VQVAE(L.LightningModule):
 		return quantized, encodings
 
 	def calculate_loss(self, batch, mode: str):
-		""" Calculates losses during validation and testing step """
+		""" Calculates losses during a validation and testing step """
 		mixed, instruments = batch
 		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
 		mixed_output = torch.einsum('bij-> bj', output)
 
-		to_spectrogram = torchaudio.transforms.MelSpectrogram(
-			sample_rate=self.trainer.val_dataloaders.dataset.target_sample_rate,
-			n_fft=400,
-			win_length=400,
-			hop_length=160,
-			n_mels=64).to(mixed.device)
+		sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate if mode == "validation" else (
+			self.trainer.test_dataloaders.dataset.target_sample_rate)
+
+		to_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,
+															  n_fft=400,
+															  win_length=400,
+															  hop_length=160,
+															  n_mels=64).to(mixed.device)
 
 		instruments_name = ["bass", "drums", "guitar", "piano"]
 
@@ -123,18 +118,8 @@ class VQVAE(L.LightningModule):
 		loss = embedding_loss + commitment_loss
 
 		# loss per instrument
-		new_weights_loss_per_instrument = []
 		for i, instrument in enumerate(instruments_name):
-			mse_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
-			# to improve the sound of each instrument
-			si_sdr_loss = -1 * scale_invariant_signal_distortion_ratio(preds=output[:, i, :],
-																	   target=instruments[:, i, :]).mean()
-
-			# calculate total loss per instrument
-			instruments_loss = mse_loss + self.weights[i] * si_sdr_loss
-			# append calculated loss to list in order to compute new weights after
-			new_weights_loss_per_instrument.append(instruments_loss.item())
-			# add to total loss
+			instruments_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 			loss += instruments_loss
 
 			self.log(f"{mode}/l2_{instrument}_loss",
@@ -153,8 +138,6 @@ class VQVAE(L.LightningModule):
 			self.log(f"{mode}/spectrogram_l2_{instrument}_loss",
 					 F.mse_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :])),
 					 on_epoch=True)
-
-		self.matrix_loss_per_instrument.append(new_weights_loss_per_instrument)
 
 		# SI-SDR loss on combined audio
 		self.log(f"{mode}/si_sdr_full_audio_measure",
@@ -244,13 +227,3 @@ class VQVAE(L.LightningModule):
 		codebook_weights = self.vector_quantizer.codebook.weight.data.cpu().numpy()
 		codebook_dataframe = pd.DataFrame(codebook_weights)
 		codebook_dataframe.to_csv(self.codebook_file)
-
-	def on_validation_epoch_end(self):
-		""" Calculate new weights """
-		mean_losses = torch.einsum("ij -> j",
-								   torch.tensor(self.matrix_loss_per_instrument) / len(
-									   self.matrix_loss_per_instrument))
-
-		avg = torch.mean(mean_losses)
-		self.weights = [0.25 * (loss / avg) for loss in mean_losses]
-		self.matrix_loss_per_instrument = []

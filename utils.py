@@ -5,6 +5,7 @@ import torch
 import torchaudio
 from omegaconf import DictConfig
 from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 
 from model.vqvae import VQVAE
 
@@ -13,7 +14,7 @@ def plot_codebook(config: DictConfig):
 	codebook_df = pd.read_csv(config.path.codebook_file)
 	codebook_weights = codebook_df.values
 
-	kmeans = KMeans(n_clusters=4, random_state=42)
+	kmeans = KMeans(n_clusters=4, random_state=123)
 	clusters = kmeans.fit_predict(codebook_weights)
 
 	sns.set(style='whitegrid')
@@ -21,25 +22,30 @@ def plot_codebook(config: DictConfig):
 	sns.scatterplot(x=codebook_weights[:, 0], y=codebook_weights[:, 1], hue=clusters, palette='viridis', legend='full')
 	plt.title('Codebook Embeddings - KMeans Clustering (k=4)')
 	plt.legend(title='Codebook Embeddings Clusters')
+	plt.ylim([-0.003, 0.003])
 	plt.show()
 
 
-def plot_embeddings_from_quantized(config: DictConfig, input: torch.Tensor):
+def plot_embeddings_from_quantized(config: DictConfig, batch: torch.Tensor):
+	mixed, instruments = batch
 	codebook_df = pd.read_csv(config.path.codebook_file)
 	codebook_weights = codebook_df.values
 
-	kmeans = KMeans(n_clusters=4, random_state=42)
-	clusters = kmeans.fit_predict(codebook_weights)
+	reduced_data = PCA(n_components=2).fit_transform(codebook_weights)
+	kmeans = KMeans(init="k-means++", n_clusters=4, random_state=123)
+	clusters = kmeans.fit_predict(reduced_data)
 
 	model = VQVAE.load_from_checkpoint(f"{config.path.checkpoint_dir}/last.ckpt")
 	model.eval()
-	_, encodings = model.get_quantized(input)
+	_, encodings = model.get_quantized(mixed)
 	embeddings = torch.matmul(encodings, torch.Tensor(codebook_df.values))
+	reduced_embeddings = PCA(n_components=2).fit_transform(embeddings)
 
 	sns.set(style='whitegrid')
 	plt.figure(figsize=(8, 6))
-	sns.scatterplot(x=codebook_weights[:, 0], y=codebook_weights[:, 1], hue=clusters, palette='viridis', legend='full')
-	sns.scatterplot(x=embeddings[:, 0], y=embeddings[:, 1], palette='viridis')
+	plt.ylim([-0.12, 0.01])
+	sns.scatterplot(x=reduced_data[:, 0], y=reduced_data[:, 1], hue=clusters, palette='viridis', legend='full')
+	sns.scatterplot(x=reduced_embeddings[:, 0], y=reduced_embeddings[:, 1])
 	plt.title('Embeddings from Quantized Representation')
 	plt.show()
 
