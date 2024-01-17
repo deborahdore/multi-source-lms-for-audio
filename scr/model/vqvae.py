@@ -12,12 +12,12 @@ from torchmetrics.functional.audio import scale_invariant_signal_distortion_rati
 
 from scr.model.components.decoder import Decoder
 from scr.model.components.encoder import Encoder
-from scr.model.components.vectorquantizer import VectorQuantizer
+from scr.model.components.vector_quantizer import VectorQuantizer
 
-""" Main model that initializes training/validation/test phases """
 
 
 class VQVAE(L.LightningModule):
+	""" Main model that initializes training/validation/test phases """
 	def __init__(self,
 				 num_hidden: int,
 				 num_residual_layer: int,

@@ -1,16 +1,23 @@
-defaults:
+# @package _global_
+
+# order of defaults determines the order in which configs override each other
+defaults :
   - _self_
-  - datamodule: default
+  - data: default
   - model: model
-  - callbacks: [early_stopping, model_checkpoint]
-  - logger: wandb # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - callbacks: default
+  - logger: null
   - trainer: default
   - paths: default
-  - hparams_search: null
+  - extras: default
   - hydra: default
+  - experiment: null
+  - hparams_search: null
+  - debug: default
 
-train: True
-test: False
-seed: 14
+task_name: "train"
 
-ckpt_path: null # path to checkpoint
+train    : True # train the model
+test     : False # evaluate the model
+ckpt_path: null # resume training from path
+seed     : 14

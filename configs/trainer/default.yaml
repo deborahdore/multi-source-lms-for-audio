@@ -1,12 +1,10 @@
-_target_: lightning.pytorch.trainer.Trainer
-default_root_dir: ${paths.output_dir}
+_target_           : lightning.pytorch.trainer.Trainer
+default_root_dir   : ${paths.output_dir}
 
-min_epochs: 10 # prevents early stopping
-max_epochs: 60
+min_epochs         : 10 # prevents early stopping
+max_epochs         : 60
 
 enable_progress_bar: True
-log_every_n_steps: None
-accelerator: 'gpu'
-devices: 1
-
-#fast_dev_run: True # uncomment for debugging
+log_every_n_steps  : null
+accelerator        : 'gpu'
+devices            : 1

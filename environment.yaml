@@ -1,10 +1,11 @@
-name: hydra_lightning
+name        : hydra_env
 
-channels:
+channels    :
   - pytorch
   - conda-forge
   - defaults
-  -
+  - anaconda
+
 dependencies:
   - python=3.10
   - pytorch=2.*
@@ -15,13 +16,12 @@ dependencies:
   - rich=13.*
   - pre-commit=3.*
   - pytest=7.*
-  - wandb=0.16.*
+  - wandb
   - pip>=23
-  - pandas=2.1.*
-  - torchaudio=2.1.*
-  - matplotlib=3.8.*
+  - sox=14.4
+  - torchaudio=2.1
+  - pandas=2.1
   - umap-learn=0.5
-  - seaborn=0.13.*
   - pip:
       - hydra-optuna-sweeper
       - hydra-colorlog

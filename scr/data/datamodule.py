@@ -7,8 +7,13 @@ from torch.utils.data import DataLoader
 from scr.data.dataset import SlakhDataset
 from scr.data.transform import Quantize
 
+from scr.utils import pylogger
+
+log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+
 
 class SlakhDataModule(L.LightningDataModule):
+	""" Custom Datamodule for Slakh Dataset"""
 	def __init__(self,
 				 train_dir: str,
 				 val_dir: str,
@@ -16,9 +21,12 @@ class SlakhDataModule(L.LightningDataModule):
 				 target_sample_rate: int,
 				 target_frame_length_sec: int,
 				 batch_size: int,
+				 num_workers: int,
+				 pin_memory: bool,
 				 transform: Optional[Quantize] = None):
 
 		super().__init__()
+
 		self.test_dataset = None
 		self.train_dataset = None
 		self.val_dataset = None
@@ -28,11 +36,13 @@ class SlakhDataModule(L.LightningDataModule):
 
 	def setup(self, stage: Optional[str] = None):
 		"""
-		This method is called by Lightning before `trainer.fit()`, `trainer.validate()`, `trainer.test()`, and
-        `trainer.predict()`
+		Lightning calls this method before `trainer.fit()`, `trainer.validate()`, `trainer.test()`,
+		and `trainer.predict()`
 
-		:param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
+		:param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
 		"""
+		log.info(f"Setting up stage {stage}")
+
 		if stage == 'fit':
 			self.train_dataset = SlakhDataset(self.hparams.train_dir,
 											  target_sample_rate=self.hparams.target_sample_rate,
@@ -56,16 +66,32 @@ class SlakhDataModule(L.LightningDataModule):
 		print(f"[setup] test dataset len: {len(self.test_dataset)}")
 
 	def train_dataloader(self):
-		return DataLoader(self.train_dataset, batch_size=self.hparams.batch_size, shuffle=True)
+		return DataLoader(self.train_dataset,
+						  batch_size=self.hparams.batch_size,
+						  num_workers=self.hparams.num_workers,
+						  pin_memory=self.hparams.pin_memory,
+						  shuffle=True)
 
 	def val_dataloader(self):
-		return DataLoader(self.val_dataset, batch_size=self.hparams.batch_size, shuffle=False)
+		return DataLoader(self.val_dataset,
+						  batch_size=self.hparams.batch_size,
+						  num_workers=self.hparams.num_workers,
+						  pin_memory=self.hparams.pin_memory,
+						  shuffle=False)
 
 	def test_dataloader(self):
-		return DataLoader(self.test_dataset, batch_size=self.hparams.batch_size, shuffle=False)
+		return DataLoader(self.test_dataset,
+						  batch_size=self.hparams.batch_size,
+						  num_workers=self.hparams.num_workers,
+						  pin_memory=self.hparams.pin_memory,
+						  shuffle=False)
 
 	def predict_dataloader(self):
-		return DataLoader(self.test_dataset, batch_size=1, shuffle=True)
+		return DataLoader(self.test_dataset,
+						  batch_size=1,
+						  num_workers=self.hparams.num_workers,
+						  pin_memory=self.hparams.pin_memory,
+						  shuffle=False)
 
 	def on_after_batch_transfer(self, batch: Tuple[torch.Tensor, torch.Tensor], dataloader_idx: int):
 		if self.transform:

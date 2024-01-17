@@ -7,7 +7,6 @@ class VectorQuantizer(nn.Module):
 	"""
 	https://github.com/deepmind/sonnet/blob/v2/sonnet/src/nets/vqvae.py
 	"""
-
 	def __init__(self, num_embedding: int, embedding_dim: int, commitment_cost: float):
 		super(VectorQuantizer, self).__init__()
 

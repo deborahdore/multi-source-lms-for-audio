@@ -1,10 +1,11 @@
-_target_: scr.model.vqvae.VQVAE
-num_hidden: 128
-num_residual_layer: 2
-num_residual_hidden: 32
-num_embedding: 512
-embedding_dim: 64
-commitment_cost: 0.25
-learning_rate: 1e-4
-checkpoint_dir: ${paths.checkpoint_dir}
-codebook_file: ${paths.codebook_file}
+VQVAE:
+  _target_           : scr.model.vqvae.VQVAE
+  num_hidden         : 128
+  num_residual_layer : 2
+  num_residual_hidden: 32
+  num_embedding      : 512
+  embedding_dim      : 64
+  commitment_cost    : 0.25
+  learning_rate      : 1e-4
+  checkpoint_dir     : ${paths.checkpoint_dir}
+  codebook_file      : ${paths.codebook_file}

@@ -1,14 +1,14 @@
-root_dir: ${hydra:runtime.cwd}
+root_dir      : ${oc.env:PROJECT_ROOT} # path to root directory
 
-dataset_dir: ${paths.root_dir}/../slakh2100
-train_dir: ${paths.dataset_dir}/train
-test_dir: ${paths.dataset_dir}/test
-val_dir: ${paths.dataset_dir}/validation
+work_dir      : ${hydra:runtime.cwd} # path to working directory
 
-output_dir: ${hydra:runtime.output_dir}
-log_dir: ${paths.root_dir}/logs/
-checkpoint_dir: ${paths.output_dir}/checkpoint
+dataset_dir   : ${paths.root_dir}/../slakh2100  # path to dataset directory
+train_dir     : ${paths.dataset_dir}/train # path to train dataset directory
+test_dir      : ${paths.dataset_dir}/test # path to test dataset directory
+val_dir       : ${paths.dataset_dir}/validation # path to validation dataset directory
 
-results_dir: ${paths.root_dir}/results
-plot_dir: ${paths.results_dir}/plot_dir
-codebook_file: ${paths.results_dir}/codebook.csv
+output_dir    : ${hydra:runtime.output_dir} # path to output directory created by hydra
+log_dir       : ${paths.output_dir}/logs/ # path to log directory
+checkpoint_dir: ${paths.output_dir}/checkpoint # path to checkpoint directory
+plot_dir      : ${paths.output_dir}/plot_dir # path to plot directory
+codebook_file : ${paths.output_dir}/codebook.csv # path to codebook file
