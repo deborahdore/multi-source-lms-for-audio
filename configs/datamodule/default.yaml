@@ -1,0 +1,8 @@
+_target_: scr.data.datamodule.SlakhDataModule
+
+train_dir: ${paths.train_dir} # path to the training directory > can be modified in paths
+val_dir: ${paths.val_dir} # path to the validation directory > can be modified in paths
+test_dir: ${paths.test_dir} # path to the testing directory > can be modified in paths
+target_sample_rate: 25000 # the rate at which instruments will be resampled
+target_frame_length_sec: 3 # total length of each sample
+batch_size: 64

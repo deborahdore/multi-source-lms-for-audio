@@ -1,15 +1,14 @@
 import os
-from pathlib import Path
 
 import hydra
 import lightning as L
 import torch
 import wandb
+from data.data import SlakhDataModule
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from omegaconf import DictConfig, OmegaConf
 
-from data.data import SlakhDataModule
 from data.transform import Quantize
 from model.transformer import TransformerDecoder
 from model.vqvae import VQVAE
@@ -17,17 +16,7 @@ from model.vqvae import VQVAE
 torch.set_float32_matmul_precision('medium')
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-
-def init(config: DictConfig):
-	OmegaConf.register_new_resolver("base_dir", lambda x: os.path.abspath("."))
-	OmegaConf.register_new_resolver("eval", eval)
-
-	assert Path(config.path.train_dir).exists()
-	assert Path(config.path.test_dir).exists()
-	assert Path(config.path.val_dir).exists()
-
-	Path(config.path.checkpoint_dir).mkdir(parents=True, exist_ok=True)
-	Path(config.path.plot_dir).mkdir(parents=True, exist_ok=True)
+OmegaConf.register_new_resolver("eval", eval)
 
 
 @hydra.main(version_base=None, config_path=".", config_name="config")

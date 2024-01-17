@@ -1,17 +1,19 @@
+from typing import Tuple
+
+import hydra
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 import torch
 import torchaudio
 import umap
+from lightning import LightningModule
 from omegaconf import DictConfig
 from sklearn.cluster import KMeans
 
-from model.vqvae import VQVAE
 
-
-def plot_codebook(config: DictConfig, plot_dir: str):
-	codebook_df = pd.read_csv(config.path.codebook_file)
+def plot_codebook(cfg: DictConfig):
+	codebook_df = pd.read_csv(cfg.paths.codebook_file)
 	proj = umap.UMAP(n_neighbors=3, min_dist=0.1, metric='cosine', random_state=14).fit_transform(codebook_df.values)
 	kmeans = KMeans(n_clusters=4, random_state=14)
 	clusters = kmeans.fit_predict(proj)
@@ -21,33 +23,26 @@ def plot_codebook(config: DictConfig, plot_dir: str):
 	sns.scatterplot(x=proj[:, 0], y=proj[:, 1], hue=clusters, legend='full')
 	plt.title('Codebook Embeddings - KMeans Clustering (k=4)')
 	plt.legend(title='Clusters')
-	plt.savefig(f"{plot_dir}/codebook.svg")
+	plt.savefig(f"{cfg.paths.plot_dir}/codebook.svg")
 
 
-def plot_embeddings_from_quantized(config: DictConfig, batch: tuple, plot_dir: str):
-	codebook_df = pd.read_csv(config.path.codebook_file)
+def plot_embeddings_from_quantized(cfg: DictConfig, batch: Tuple[torch.Tensor, torch.Tensor]):
+	codebook_df = pd.read_csv(cfg.paths.codebook_file)
 	proj = umap.UMAP(n_neighbors=3, min_dist=0.1, metric='cosine', random_state=14).fit_transform(codebook_df.values)
 	kmeans = KMeans(n_clusters=4, random_state=14)
 	clusters = kmeans.fit_predict(proj)
 
 	instruments_name = ["bass", "drums", "guitar", "piano"]
 
-	checkpoint = torch.load(f"{config.path.checkpoint_dir}/best_model.ckpt", map_location=torch.device('cpu'))
-	model = VQVAE(num_hidden=config.model.num_hidden,
-				  num_residual_layer=config.model.num_residual_layer,
-				  num_residual_hidden=config.model.num_residual_hidden,
-				  num_embedding=config.model.num_embeddings,
-				  embedding_dim=config.model.embedding_dim,
-				  commitment_cost=config.model.commitment_cost,
-				  learning_rate=config.model.learning_rate,
-				  checkpoint_dir=config.path.checkpoint_dir,
-				  codebook_file=config.path.codebook_file)
-	model.load_state_dict(checkpoint['state_dict'])
+	checkpoint = torch.load(f"{cfg.paths.checkpoint_dir}/best_model.ckpt", map_location=torch.device('cpu'))
+	vqvae: LightningModule = hydra.utils.instantiate(cfg.model)
+	vqvae.load_state_dict(checkpoint['state_dict'])
+	vqvae.eval()
 
 	mixed, instruments = batch
 	for idx in range(instruments.size(1)):
 		one_instrument = instruments[:, idx, :].unsqueeze(0)
-		quantized, encodings, encodings_indices = model.get_quantized(one_instrument)
+		quantized, encodings, encodings_indices = vqvae.get_quantized(one_instrument)
 		encodings_indices = torch.unique(encodings_indices)
 		selected_embeddings = proj[encodings_indices]
 
@@ -57,7 +52,7 @@ def plot_embeddings_from_quantized(config: DictConfig, batch: tuple, plot_dir: s
 		sns.scatterplot(x=selected_embeddings[:, 0], y=selected_embeddings[:, 1], alpha=0.5, color='yellow')
 		plt.title(f'{instruments_name[idx].upper()} Embeddings')
 		plt.legend(title='Clusters')
-		plt.savefig(f"{plot_dir}/{instruments_name[idx].lower()}_embeddings_quantized_representation.svg")
+		plt.savefig(f"{cfg.paths.plot_dir}/{instruments_name[idx].lower()}_embeddings_quantized_representation.svg")
 
 
 def plot_waveform(waveform: torch.Tensor, plot_dir: str, sample_rate: int = 22050, title: str = None):

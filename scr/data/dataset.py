@@ -16,7 +16,6 @@ class SlakhDataset(Dataset):
 		self.file_paths = []
 		self.instruments = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
 		self.frame_length_samples = int(frame_length_sec * self.target_sample_rate)
-
 		for sub_dir in [x for x in os.walk(data_dir)][0][1]:
 			self.file_paths.append(os.path.join(data_dir, sub_dir))
 
@@ -28,7 +27,6 @@ class SlakhDataset(Dataset):
 			self.instruments_dict[idx] = self.get_stems(idx)
 
 	def clean_df(self):
-		print("[clean_df] Starting dataset cleaning")
 		new_file_paths = []
 		for idx in range(0, len(self.file_paths)):
 			instruments = self.get_stems(idx)
@@ -41,7 +39,6 @@ class SlakhDataset(Dataset):
 			new_file_paths.append(self.file_paths[idx])
 
 		self.file_paths = new_file_paths
-		print("[clean_df] Finished dataset cleaning")
 
 	def get_stems(self, idx: int):
 		instrument_data = []

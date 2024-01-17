@@ -1,10 +1,10 @@
-import model.vqvae
+from scr.model.vqvae import VQVAE
 
 
 class Quantize(object):
 	""" Custom Transform """
 
-	def __init__(self, vqvae: model.vqvae.VQVAE):
+	def __init__(self, vqvae: VQVAE):
 		self.vqvae = vqvae
 		self.vqvae.eval()
 

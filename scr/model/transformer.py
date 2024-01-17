@@ -1,6 +1,6 @@
 from typing import Any
 
-import pytorch_lightning as L
+import lightning as L
 import torch
 import torchaudio
 import wandb

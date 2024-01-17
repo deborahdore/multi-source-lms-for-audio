@@ -1,0 +1,14 @@
+root_dir: ${hydra:runtime.cwd}
+
+dataset_dir: ${paths.root_dir}/../slakh2100
+train_dir: ${paths.dataset_dir}/train
+test_dir: ${paths.dataset_dir}/test
+val_dir: ${paths.dataset_dir}/validation
+
+output_dir: ${hydra:runtime.output_dir}
+log_dir: ${paths.root_dir}/logs/
+checkpoint_dir: ${paths.output_dir}/checkpoint
+
+results_dir: ${paths.root_dir}/results
+plot_dir: ${paths.results_dir}/plot_dir
+codebook_file: ${paths.results_dir}/codebook.csv
