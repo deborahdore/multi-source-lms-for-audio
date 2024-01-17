@@ -1,11 +1,9 @@
 import os
 import random
 
-import lightning as L
 import torch
 import torchaudio
-from omegaconf import DictConfig
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 
 class SlakhDataset(Dataset):
@@ -84,38 +82,3 @@ class SlakhDataset(Dataset):
 				break
 
 		return mixture_offset, instruments_offset
-
-
-class SlakhDataModule(L.LightningDataModule):
-	def __init__(self, config: DictConfig):
-		super().__init__()
-		self.test_dataset = None
-		self.train_dataset = None
-		self.val_dataset = None
-		self.config = config
-
-	def setup(self, stage=None):
-		self.train_dataset = SlakhDataset(self.config.path.train_dir,
-										  target_sample_rate=self.config.data.target_sample_rate,
-										  frame_length_sec=self.config.data.target_frame_length_sec)
-
-		self.val_dataset = SlakhDataset(self.config.path.val_dir,
-										target_sample_rate=self.config.data.target_sample_rate,
-										frame_length_sec=self.config.data.target_frame_length_sec)
-
-		self.test_dataset = SlakhDataset(self.config.path.test_dir,
-										 target_sample_rate=self.config.data.target_sample_rate,
-										 frame_length_sec=self.config.data.target_frame_length_sec)
-
-		print(f"[setup] train dataset len: {len(self.train_dataset)}")
-		print(f"[setup] test dataset len: {len(self.test_dataset)}")
-		print(f"[setup] val dataset len: {len(self.val_dataset)}")
-
-	def train_dataloader(self):
-		return DataLoader(self.train_dataset, batch_size=self.config.trainer.batch_size, shuffle=True)
-
-	def val_dataloader(self):
-		return DataLoader(self.val_dataset, batch_size=self.config.trainer.batch_size, shuffle=False)
-
-	def test_dataloader(self):
-		return DataLoader(self.test_dataset, batch_size=self.config.trainer.batch_size, shuffle=False)

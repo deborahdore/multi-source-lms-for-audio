@@ -8,17 +8,19 @@ import wandb
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import DataLoader
 
-from data import SlakhDataModule, SlakhDataset
+from data.data import SlakhDataModule
+from data.transform import Quantize
+from model.transformer import TransformerDecoder
 from model.vqvae import VQVAE
-from utils import plot_embeddings_from_quantized, plot_spectrogram, plot_waveform
 
 torch.set_float32_matmul_precision('medium')
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 
 def init(config: DictConfig):
 	OmegaConf.register_new_resolver("base_dir", lambda x: os.path.abspath("."))
+	OmegaConf.register_new_resolver("eval", eval)
 
 	assert Path(config.path.train_dir).exists()
 	assert Path(config.path.test_dir).exists()
@@ -32,18 +34,32 @@ def init(config: DictConfig):
 def train(config: DictConfig):
 	init(config)
 
-	data_module = SlakhDataModule(config)
-
-	model = VQVAE(num_hidden=config.model.num_hidden,
-				  num_residual_layer=config.model.num_residual_layer,
-				  num_residual_hidden=config.model.num_residual_hidden,
-				  num_embedding=config.model.num_embeddings,
-				  embedding_dim=config.model.embedding_dim,
-				  commitment_cost=config.model.commitment_cost,
-				  learning_rate=config.model.learning_rate,
+	vqvae = VQVAE(num_hidden=config.model.vqvae.num_hidden,
+				  num_residual_layer=config.model.vqvae.num_residual_layer,
+				  num_residual_hidden=config.model.vqvae.num_residual_hidden,
+				  num_embedding=config.model.vqvae.num_embeddings,
+				  embedding_dim=config.model.vqvae.embedding_dim,
+				  commitment_cost=config.model.vqvae.commitment_cost,
+				  learning_rate=config.model.vqvae.learning_rate,
 				  checkpoint_dir=config.path.checkpoint_dir,
 				  codebook_file=config.path.codebook_file)
 
+	vqvae_file = f"{config.path.checkpoint_dir}/best_model.ckpt"
+	assert os.path.isfile(vqvae_file)
+
+	# load and place in evaluation mode
+	vqvae.load_state_dict(torch.load(vqvae_file, map_location=device)['state_dict'])
+	vqvae.eval()
+
+	data_module = SlakhDataModule(config, transform=Quantize(vqvae))
+
+	# create transformer
+	transformer = TransformerDecoder(input_dim=config.model.transformer.input_dim,
+									 output_dim=config.model.transformer.output_dim,
+									 learning_rate=config.model.transformer.learning_rate,
+									 num_layers=config.model.transformer.num_layers,
+									 num_heads=config.model.transformer.num_heads,
+									 hidden_dim=config.model.transformer.hidden_dim)
 	if config.logger.wandb:
 		wandb.finish()
 		logger = WandbLogger(name=config.logger.wandb_name,
@@ -62,7 +78,7 @@ def train(config: DictConfig):
 										  monitor='validation/loss',
 										  mode='min',
 										  save_top_k=2,
-										  filename='best_model',
+										  filename='best_model_transformer',
 										  save_last=True)
 
 	early_stopping = EarlyStopping(monitor=config.trainer.early_stopping_monitor,
@@ -77,42 +93,21 @@ def train(config: DictConfig):
 						profiler=config.trainer.profiler,
 						logger=logger,
 						log_every_n_steps=None,
-						accelerator="gpu",
+						# accelerator="gpu",
 						# uncomment next rows for debugging
-						# accelerator="cpu",
-						# fast_dev_run=True,
-						# devices=1
-						)
+						accelerator="cpu",
+						fast_dev_run=True,
+						devices=1)
 
 	checkpoint_path = None
 	if config.trainer.load_from_checkpoint:
-		checkpoint_path = f"{config.path.checkpoint_dir}/best_model.ckpt"
+		checkpoint_path = f"{config.path.checkpoint_dir}/best_model_transformer.ckpt"
 
-	trainer.fit(model=model, datamodule=data_module, ckpt_path=checkpoint_path)
-	trainer.test(model=model, datamodule=data_module, ckpt_path=f"{config.path.checkpoint_dir}/best_model.ckpt")
-
-
-@hydra.main(version_base=None, config_path=".", config_name="config")
-def visualize(config: DictConfig):
-	init(config)
-
-	dataset = SlakhDataset(config.path.test_dir,
-						   frame_length_sec=config.data.target_frame_length_sec,
-						   target_sample_rate=config.data.target_sample_rate)
-
-	dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
-
-	instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
-	mixed, instruments = next(iter(dataloader))
-	plot_embeddings_from_quantized(config, (mixed, instruments))
-
-	for idx, instrument_name in enumerate(instruments_name):
-		plot_spectrogram(instruments[:, idx, :], plot_dir=config.path.plot_dir, title=instrument_name.split(".")[0])
-		plot_waveform(instruments[:, idx, :], plot_dir=config.path.plot_dir, title=instrument_name.split(".")[0])
-
-	plot_spectrogram(mixed.squeeze(0), plot_dir=config.path.plot_dir, title="song")
-	plot_waveform(mixed.squeeze(0), plot_dir=config.path.plot_dir, title="song")
+	trainer.fit(model=transformer, datamodule=data_module, ckpt_path=checkpoint_path)
+	trainer.test(model=transformer,
+				 datamodule=data_module,
+				 ckpt_path=f"{config.path.checkpoint_dir}/best_model_transformer.ckpt")
 
 
 if __name__ == '__main__':
-	train()  # visualize()
+	train()

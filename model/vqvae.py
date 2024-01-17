@@ -1,7 +1,7 @@
 from typing import Any
 
-import lightning as L
 import pandas as pd
+import pytorch_lightning as L
 import torch
 import torchaudio
 import wandb
@@ -79,7 +79,7 @@ class VQVAE(L.LightningModule):
 	def forward(self, x):
 		""" Forward function that carries out the main operations """
 		z = self.conv(self.encoder(x))
-		embedding_loss, commitment_loss, quantized, perplexity, encodings = self.vector_quantizer(z)
+		embedding_loss, commitment_loss, quantized, perplexity, encodings, encoding_indices = self.vector_quantizer(z)
 		output = self.decoder(quantized)
 		return output, embedding_loss, commitment_loss, perplexity
 
@@ -87,8 +87,8 @@ class VQVAE(L.LightningModule):
 	def get_quantized(self, x):
 		""" Used during inference to retrieve the quantized representation of an input """
 		z = self.conv(self.encoder(x))
-		embedding_loss, commitment_loss, quantized, perplexity, encodings = self.vector_quantizer(z)
-		return quantized, encodings
+		embedding_loss, commitment_loss, quantized, perplexity, encodings, encodings_idx = self.vector_quantizer(z)
+		return quantized, encodings, encodings_idx
 
 	def calculate_loss(self, batch, mode: str):
 		""" Calculates losses during a validation and testing step """

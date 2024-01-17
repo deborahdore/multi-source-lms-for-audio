@@ -29,11 +29,11 @@ class VectorQuantizer(nn.Module):
 		flat_input = inputs.view(-1, self.embedding_dim)
 
 		# Compute L2 distance between latents and embedding weights
-		distances = torch.sum(flat_input ** 2, dim=1, keepdim=True) + torch.sum(self.codebook.weight ** 2,
-																				dim=1) - 2 * torch.matmul(flat_input,
-																										  self.codebook.weight.t())
+		distances = (torch.sum(flat_input ** 2, dim=1, keepdim=True)) + (
+				torch.sum(self.codebook.weight ** 2, dim=1) - 2 * torch.matmul(flat_input, self.codebook.weight.t()))
 
 		# Encoding
+		# For every element in the input, find the closest embedding
 		encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
 		encodings = torch.zeros(encoding_indices.shape[0], self.num_embedding, device=inputs.device)
 		encodings.scatter_(1, encoding_indices, 1)
@@ -51,7 +51,7 @@ class VectorQuantizer(nn.Module):
 		# convert from BWC -> BCW
 		quantized = torch.einsum('bwc -> bcw', quantized).contiguous()
 
-		return embedding_loss, commitment_loss, quantized, perplexity, encodings
+		return embedding_loss, commitment_loss, quantized, perplexity, encodings, encoding_indices
 
 
 class ResidualStack(nn.Module):

@@ -3,51 +3,61 @@ import pandas as pd
 import seaborn as sns
 import torch
 import torchaudio
+import umap
 from omegaconf import DictConfig
 from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
 
 from model.vqvae import VQVAE
 
 
-def plot_codebook(config: DictConfig):
+def plot_codebook(config: DictConfig, plot_dir: str):
 	codebook_df = pd.read_csv(config.path.codebook_file)
-	codebook_weights = codebook_df.values
-
-	kmeans = KMeans(n_clusters=4, random_state=123)
-	clusters = kmeans.fit_predict(codebook_weights)
+	proj = umap.UMAP(n_neighbors=3, min_dist=0.1, metric='cosine', random_state=14).fit_transform(codebook_df.values)
+	kmeans = KMeans(n_clusters=4, random_state=14)
+	clusters = kmeans.fit_predict(proj)
 
 	sns.set(style='whitegrid')
 	plt.figure(figsize=(8, 6))
-	sns.scatterplot(x=codebook_weights[:, 0], y=codebook_weights[:, 1], hue=clusters, palette='viridis', legend='full')
+	sns.scatterplot(x=proj[:, 0], y=proj[:, 1], hue=clusters, legend='full')
 	plt.title('Codebook Embeddings - KMeans Clustering (k=4)')
-	plt.legend(title='Codebook Embeddings Clusters')
-	plt.ylim([-0.003, 0.003])
-	plt.show()
+	plt.legend(title='Clusters')
+	plt.savefig(f"{plot_dir}/codebook.svg")
 
 
-def plot_embeddings_from_quantized(config: DictConfig, batch: torch.Tensor):
-	mixed, instruments = batch
+def plot_embeddings_from_quantized(config: DictConfig, batch: tuple, plot_dir: str):
 	codebook_df = pd.read_csv(config.path.codebook_file)
-	codebook_weights = codebook_df.values
+	proj = umap.UMAP(n_neighbors=3, min_dist=0.1, metric='cosine', random_state=14).fit_transform(codebook_df.values)
+	kmeans = KMeans(n_clusters=4, random_state=14)
+	clusters = kmeans.fit_predict(proj)
 
-	reduced_data = PCA(n_components=2).fit_transform(codebook_weights)
-	kmeans = KMeans(init="k-means++", n_clusters=4, random_state=123)
-	clusters = kmeans.fit_predict(reduced_data)
+	instruments_name = ["bass", "drums", "guitar", "piano"]
 
-	model = VQVAE.load_from_checkpoint(f"{config.path.checkpoint_dir}/last.ckpt")
-	model.eval()
-	_, encodings = model.get_quantized(mixed)
-	embeddings = torch.matmul(encodings, torch.Tensor(codebook_df.values))
-	reduced_embeddings = PCA(n_components=2).fit_transform(embeddings)
+	checkpoint = torch.load(f"{config.path.checkpoint_dir}/best_model.ckpt", map_location=torch.device('cpu'))
+	model = VQVAE(num_hidden=config.model.num_hidden,
+				  num_residual_layer=config.model.num_residual_layer,
+				  num_residual_hidden=config.model.num_residual_hidden,
+				  num_embedding=config.model.num_embeddings,
+				  embedding_dim=config.model.embedding_dim,
+				  commitment_cost=config.model.commitment_cost,
+				  learning_rate=config.model.learning_rate,
+				  checkpoint_dir=config.path.checkpoint_dir,
+				  codebook_file=config.path.codebook_file)
+	model.load_state_dict(checkpoint['state_dict'])
 
-	sns.set(style='whitegrid')
-	plt.figure(figsize=(8, 6))
-	plt.ylim([-0.12, 0.01])
-	sns.scatterplot(x=reduced_data[:, 0], y=reduced_data[:, 1], hue=clusters, palette='viridis', legend='full')
-	sns.scatterplot(x=reduced_embeddings[:, 0], y=reduced_embeddings[:, 1])
-	plt.title('Embeddings from Quantized Representation')
-	plt.show()
+	mixed, instruments = batch
+	for idx in range(instruments.size(1)):
+		one_instrument = instruments[:, idx, :].unsqueeze(0)
+		quantized, encodings, encodings_indices = model.get_quantized(one_instrument)
+		encodings_indices = torch.unique(encodings_indices)
+		selected_embeddings = proj[encodings_indices]
+
+		sns.set(style='whitegrid')
+		plt.figure(figsize=(8, 6))
+		sns.scatterplot(x=proj[:, 0], y=proj[:, 1], hue=clusters, legend='full')
+		sns.scatterplot(x=selected_embeddings[:, 0], y=selected_embeddings[:, 1], alpha=0.5, color='yellow')
+		plt.title(f'{instruments_name[idx].upper()} Embeddings')
+		plt.legend(title='Clusters')
+		plt.savefig(f"{plot_dir}/{instruments_name[idx].lower()}_embeddings_quantized_representation.svg")
 
 
 def plot_waveform(waveform: torch.Tensor, plot_dir: str, sample_rate: int = 22050, title: str = None):
