@@ -7,6 +7,7 @@ class VectorQuantizer(nn.Module):
 	"""
 	https://github.com/deepmind/sonnet/blob/v2/sonnet/src/nets/vqvae.py
 	"""
+
 	def __init__(self, num_embedding: int, embedding_dim: int, commitment_cost: float):
 		super(VectorQuantizer, self).__init__()
 
@@ -51,5 +52,3 @@ class VectorQuantizer(nn.Module):
 		quantized = torch.einsum('bwc -> bcw', quantized).contiguous()
 
 		return embedding_loss, commitment_loss, quantized, perplexity, encodings, encoding_indices
-
-

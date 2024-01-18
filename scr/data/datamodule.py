@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader
 
 from scr.data.dataset import SlakhDataset
 from scr.data.transform import Quantize
-
 from scr.utils import pylogger
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
@@ -14,6 +13,7 @@ log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 class SlakhDataModule(L.LightningDataModule):
 	""" Custom Datamodule for Slakh Dataset"""
+
 	def __init__(self,
 				 train_dir: str,
 				 val_dir: str,
@@ -47,11 +47,12 @@ class SlakhDataModule(L.LightningDataModule):
 			self.train_dataset = SlakhDataset(self.hparams.train_dir,
 											  target_sample_rate=self.hparams.target_sample_rate,
 											  frame_length_sec=self.hparams.target_frame_length_sec)
-
-		if stage == 'validate':
 			self.val_dataset = SlakhDataset(self.hparams.val_dir,
 											target_sample_rate=self.hparams.target_sample_rate,
 											frame_length_sec=self.hparams.target_frame_length_sec)
+
+			log.info(f"Training dataset length: {len(self.train_dataset)}")
+			log.info(f"Validation dataset length: {len(self.val_dataset)}")
 
 		if stage == "test" or "predict":
 			if stage == "predict" and self.test_dataset is not None:
@@ -60,10 +61,7 @@ class SlakhDataModule(L.LightningDataModule):
 			self.test_dataset = SlakhDataset(self.hparams.test_dir,
 											 target_sample_rate=self.hparams.target_sample_rate,
 											 frame_length_sec=self.hparams.target_frame_length_sec)
-
-		print(f"[setup] train dataset len: {len(self.train_dataset)}")
-		print(f"[setup] val dataset len: {len(self.val_dataset)}")
-		print(f"[setup] test dataset len: {len(self.test_dataset)}")
+			log.info(f"Testing dataset length: {len(self.test_dataset)}")
 
 	def train_dataloader(self):
 		return DataLoader(self.train_dataset,
@@ -94,6 +92,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=False)
 
 	def on_after_batch_transfer(self, batch: Tuple[torch.Tensor, torch.Tensor], dataloader_idx: int):
+		mixed, instruments = batch
 		if self.transform:
-			mixed, instruments = batch
 			return self.transform(mixed), instruments
+		return mixed, instruments

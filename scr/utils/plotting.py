@@ -11,8 +11,11 @@ from lightning import LightningModule
 from omegaconf import DictConfig
 from sklearn.cluster import KMeans
 
+""" Plotting utilities """
+
 
 def plot_codebook(cfg: DictConfig):
+	""" Plot codebook of VQVAE in a lower dimension using umap and visualize clusters using K-Means """
 	codebook_df = pd.read_csv(cfg.paths.codebook_file)
 	proj = umap.UMAP(n_neighbors=3, min_dist=0.1, metric='cosine', random_state=14).fit_transform(codebook_df.values)
 	kmeans = KMeans(n_clusters=4, random_state=14)
@@ -27,6 +30,8 @@ def plot_codebook(cfg: DictConfig):
 
 
 def plot_embeddings_from_quantized(cfg: DictConfig, batch: Tuple[torch.Tensor, torch.Tensor]):
+	""" Plot codebook of VQVAE in a lower dimension using umap and visualize clusters using K-Means.
+	 	Visualize embeddings of the cluster with less distance from the input on the projected codebook space """
 	codebook_df = pd.read_csv(cfg.paths.codebook_file)
 	proj = umap.UMAP(n_neighbors=3, min_dist=0.1, metric='cosine', random_state=14).fit_transform(codebook_df.values)
 	kmeans = KMeans(n_clusters=4, random_state=14)
@@ -56,6 +61,7 @@ def plot_embeddings_from_quantized(cfg: DictConfig, batch: Tuple[torch.Tensor, t
 
 
 def plot_waveform(waveform: torch.Tensor, plot_dir: str, sample_rate: int = 22050, title: str = None):
+	""" Plot and save waveform of a sound """
 	# Calculate the time axis for the waveform
 	total_samples = waveform.shape[1]
 	time_axis = torch.arange(0, total_samples) / sample_rate
@@ -72,6 +78,7 @@ def plot_waveform(waveform: torch.Tensor, plot_dir: str, sample_rate: int = 2205
 
 
 def plot_spectrogram(waveform: torch.Tensor, plot_dir: str, sample_rate: int = 22050, title: str = None):
+	""" Plot and save Mel spectrogram of a sound  """
 	# Compute the Mel spectrogram
 	mel_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,
 														   n_fft=400,

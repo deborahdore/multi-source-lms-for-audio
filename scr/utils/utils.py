@@ -1,5 +1,7 @@
+import warnings
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import rich
 import rich.syntax
@@ -9,17 +11,12 @@ from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import DictConfig, OmegaConf, open_dict
 from rich.prompt import Prompt
 
-import warnings
-from importlib.util import find_spec
-from typing import Any, Callable, Dict, Optional, Tuple
-
-from omegaconf import DictConfig
-
 from scr.utils import pylogger
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 """ https://github.com/ashleve/lightning-hydra-template """
+
 
 def extras(cfg: DictConfig) -> None:
 	"""Applies optional utilities before the task is started.

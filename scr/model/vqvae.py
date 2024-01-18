@@ -15,9 +15,9 @@ from scr.model.components.encoder import Encoder
 from scr.model.components.vector_quantizer import VectorQuantizer
 
 
-
 class VQVAE(L.LightningModule):
 	""" Main model that initializes training/validation/test phases """
+
 	def __init__(self,
 				 num_hidden: int,
 				 num_residual_layer: int,

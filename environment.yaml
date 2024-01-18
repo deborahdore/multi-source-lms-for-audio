@@ -18,10 +18,11 @@ dependencies:
   - pytest=7.*
   - wandb
   - pip>=23
-  - sox=14.4
-  - torchaudio=2.1
-  - pandas=2.1
-  - umap-learn=0.5
+  - sox=14.*
+  - torchaudio=2.*
+  - pandas=2.*
+  - umap-learn=0.*
+  - seaborn=0.*
   - pip:
       - hydra-optuna-sweeper
       - hydra-colorlog

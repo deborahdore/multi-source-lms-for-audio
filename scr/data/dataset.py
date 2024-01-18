@@ -79,7 +79,7 @@ class SlakhDataset(torch.utils.data.Dataset):
 		return torchaudio.functional.resample(audio, orig_freq=original_freq, new_freq=self.target_sample_rate)
 
 	def __getitem__(self, idx: int):
-		instruments = self.instruments_dict[idx % len(self.file_paths)] # workaround to get more frames
+		instruments = self.instruments_dict[idx % len(self.file_paths)]  # workaround to get more frames
 		mixture = torch.einsum('ij-> j', instruments).unsqueeze(0)
 
 		while True:
@@ -90,7 +90,7 @@ class SlakhDataset(torch.utils.data.Dataset):
 			instruments_offset = instruments[:,
 								 offset * self.frame_length_samples: (offset + 1) * self.frame_length_samples]
 
-			if torch.einsum('ij->', mixture_offset) > 0: # avoid silence only
+			if torch.einsum('ij->', mixture_offset) > 0:  # avoid silence only
 				break
 
 		return mixture_offset, instruments_offset
