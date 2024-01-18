@@ -4,9 +4,9 @@ import random
 import torch
 import torchaudio
 
-from scr.utils import pylogger
+from src.utils.pylogger import RankedLogger
 
-log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class SlakhDataset(torch.utils.data.Dataset):

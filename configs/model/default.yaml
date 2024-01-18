@@ -1,5 +1,5 @@
 vqvae:
-  _target_           : scr.model.vqvae.VQVAE
+  _target_           : src.model.vqvae.VQVAE
   num_hidden         : 128
   num_residual_layer : 2
   num_residual_hidden: 32

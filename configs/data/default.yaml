@@ -1,4 +1,4 @@
-_target_               : scr.data.datamodule.SlakhDataModule
+_target_               : src.data.datamodule.SlakhDataModule
 train_dir              : ${paths.train_dir} # path to the training directory > can be modified in paths
 val_dir                : ${paths.val_dir} # path to the validation directory > can be modified in paths
 test_dir               : ${paths.test_dir} # path to the testing directory > can be modified in paths

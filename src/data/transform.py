@@ -1,5 +1,4 @@
-from scr.model.vqvae import VQVAE
-
+from src.model.vqvae import VQVAE
 
 class Quantize(object):
 	""" Custom Transform """

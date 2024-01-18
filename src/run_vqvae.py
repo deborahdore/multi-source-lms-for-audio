@@ -8,9 +8,9 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
-from scr.utils.instantiators import instantiate_callbacks, instantiate_loggers
-from scr.utils.plotting import plot_codebook, plot_embeddings_from_quantized, plot_spectrogram, plot_waveform
-from scr.utils.utils import extras, get_metric_value, task_wrapper
+from utils.instantiators import instantiate_callbacks, instantiate_loggers
+from utils.plotting import plot_codebook, plot_embeddings_from_quantized, plot_spectrogram, plot_waveform
+from utils.util import extras, get_metric_value, task_wrapper
 
 # finds the file .project-root and sets its position as root
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)

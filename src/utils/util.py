@@ -11,9 +11,9 @@ from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import DictConfig, OmegaConf, open_dict
 from rich.prompt import Prompt
 
-from scr.utils import pylogger
+from src.utils.pylogger import RankedLogger
 
-log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+log = RankedLogger(__name__, rank_zero_only=True)
 
 """ https://github.com/ashleve/lightning-hydra-template """
 

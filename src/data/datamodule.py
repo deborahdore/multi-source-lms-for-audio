@@ -4,11 +4,11 @@ import lightning as L
 import torch
 from torch.utils.data import DataLoader
 
-from scr.data.dataset import SlakhDataset
-from scr.data.transform import Quantize
-from scr.utils import pylogger
+from src.data.dataset import SlakhDataset
+from src.data.transform import Quantize
+from src.utils.pylogger import RankedLogger
 
-log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class SlakhDataModule(L.LightningDataModule):

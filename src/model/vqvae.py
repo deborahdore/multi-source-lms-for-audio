@@ -10,9 +10,9 @@ from torch.nn import functional as F
 from torchmetrics import MeanMetric, MinMetric
 from torchmetrics.functional.audio import scale_invariant_signal_distortion_ratio
 
-from scr.model.components.decoder import Decoder
-from scr.model.components.encoder import Encoder
-from scr.model.components.vector_quantizer import VectorQuantizer
+from src.model.components.decoder import Decoder
+from src.model.components.encoder import Encoder
+from src.model.components.vector_quantizer import VectorQuantizer
 
 
 class VQVAE(L.LightningModule):

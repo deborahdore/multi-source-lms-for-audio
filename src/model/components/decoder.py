@@ -1,7 +1,7 @@
 from torch import nn as nn
 from torch.nn import functional as F
 
-from scr.model.components.residual_stack import ResidualStack
+from src.model.components.residual_stack import ResidualStack
 
 
 class Decoder(nn.Module):
