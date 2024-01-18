@@ -8,12 +8,14 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
-from utils.instantiators import instantiate_callbacks, instantiate_loggers
-from utils.plotting import plot_codebook, plot_embeddings_from_quantized, plot_spectrogram, plot_waveform
-from utils.util import extras, get_metric_value, task_wrapper
-
+# necessary before importing any local modules e.g. `from src import utils`
 # finds the file .project-root and sets its position as root
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
+from src.utils.plotting import plot_codebook, plot_embeddings_from_quantized, plot_spectrogram, plot_waveform
+from src.utils.util import extras, get_metric_value, task_wrapper
+
 torch.set_float32_matmul_precision('medium')
 
 

@@ -1,5 +1,6 @@
 from src.model.vqvae import VQVAE
 
+
 class Quantize(object):
 	""" Custom Transform """
 
