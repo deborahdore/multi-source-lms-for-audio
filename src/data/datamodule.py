@@ -21,8 +21,8 @@ class SlakhDataModule(L.LightningDataModule):
 				 target_sample_rate: int,
 				 target_frame_length_sec: int,
 				 batch_size: int,
-				 num_workers: int,
-				 pin_memory: bool,
+				 num_workers: int = 1,
+				 pin_memory: bool = False,
 				 transform: Optional[Quantize] = None):
 
 		super().__init__()
@@ -68,6 +68,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  batch_size=self.hparams.batch_size,
 						  num_workers=self.hparams.num_workers,
 						  pin_memory=self.hparams.pin_memory,
+						  drop_last=True,
 						  shuffle=True)
 
 	def val_dataloader(self):
@@ -75,6 +76,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  batch_size=self.hparams.batch_size,
 						  num_workers=self.hparams.num_workers,
 						  pin_memory=self.hparams.pin_memory,
+						  drop_last=True,
 						  shuffle=False)
 
 	def test_dataloader(self):
@@ -82,6 +84,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  batch_size=self.hparams.batch_size,
 						  num_workers=self.hparams.num_workers,
 						  pin_memory=self.hparams.pin_memory,
+						  drop_last=True,
 						  shuffle=False)
 
 	def predict_dataloader(self):

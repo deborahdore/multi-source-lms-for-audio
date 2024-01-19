@@ -110,10 +110,10 @@ class VQVAE(L.LightningModule):
 		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
 		mixed_output = torch.einsum('bij-> bj', output)
 
-		sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate if mode == "validation" else (
-			self.trainer.test_dataloaders.dataset.target_sample_rate)
-
 		if self.to_spectrogram is None:
+			sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate if mode == "validation" else (
+				self.trainer.test_dataloaders.dataset.target_sample_rate)
+
 			self.to_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,
 																	   n_fft=400,
 																	   win_length=400,

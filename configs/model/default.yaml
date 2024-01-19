@@ -1,4 +1,4 @@
-vqvae:
+vqvae      :
   _target_           : src.model.vqvae.VQVAE
   num_hidden         : 128
   num_residual_layer : 2
@@ -9,3 +9,11 @@ vqvae:
   learning_rate      : 1e-4
   checkpoint_dir     : ${paths.checkpoint_dir}
   codebook_file      : ${paths.codebook_file}
+transformer:
+  __target__             : src.model.transformer.Transformer
+  target_sample_rate     : data.target_sample_rate
+  target_frame_length_sec: data.target_frame_length_sec
+  num_layers             : 4
+  num_heads              : 8
+  hidden_dim             : 512
+  learning_rate          : 1e-4

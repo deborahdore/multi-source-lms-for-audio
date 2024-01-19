@@ -6,24 +6,43 @@ import torchaudio
 import wandb
 from torch import nn as nn, optim
 from torch.nn import functional as F
+from torchmetrics import MeanMetric, MinMetric
 from torchmetrics.functional.audio import scale_invariant_signal_distortion_ratio
 
 
 class TransformerDecoder(L.LightningModule):
-	def __init__(self, input_dim, output_dim, learning_rate, num_layers=4, num_heads=8, hidden_dim=512):
+	def __init__(self,
+				 target_sample_rate: int,
+				 target_frame_length_sec: int,
+				 learning_rate: float,
+				 num_layers: int = 4,
+				 num_heads: int = 8,
+				 hidden_dim: int = 512):
 		super(TransformerDecoder, self).__init__()
 
-		self.output_dim = output_dim
-		self.hidden_dim = hidden_dim
+		output_dim = target_sample_rate * target_frame_length_sec
+		input_dim = (target_sample_rate * target_frame_length_sec) // 4
 
 		self.embedding = nn.Linear(input_dim, hidden_dim)
 		self.positional_encoding = PositionalEncoding(hidden_dim)
 		decoder_layer = nn.TransformerDecoderLayer(hidden_dim, num_heads)
 		self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers)
 		self.fc = nn.Linear((hidden_dim * 64) // 4, output_dim)
-		self.learning_rate = learning_rate
-		self.best_loss = float('-inf')
-		self.save_hyperparameters()
+
+		self.val_best_loss = MinMetric()
+		self.train_loss = MeanMetric()
+		self.test_loss = MeanMetric()
+		self.val_loss = MeanMetric()
+
+		self.to_spectrogram = None
+		self.save_hyperparameters(logger=False)
+
+	def on_train_start(self):
+		"""Lightning hook that is called when training begins."""
+		self.val_loss.reset()
+		self.train_loss.reset()
+		self.test_loss.reset()
+		self.val_best_loss.reset()
 
 	def training_step(self, batch, batch_idx):
 		quantized, instruments = batch
@@ -34,7 +53,8 @@ class TransformerDecoder(L.LightningModule):
 		for i in range(4):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
-		self.log("train/loss", loss, on_epoch=True)
+		self.train_loss(loss)
+		self.log("train/loss", self.train_loss, on_epoch=True, on_step=False, prog_bar=True)
 		return loss
 
 	def validation_step(self, batch, batch_idx):
@@ -74,14 +94,15 @@ class TransformerDecoder(L.LightningModule):
 		quantized, instruments = batch
 		output = self.forward(quantized)
 
-		sample_rate = self.trainer.test_dataloaders.dataset.target_sample_rate if mode == "testing" else (
-			self.trainer.val_dataloaders.dataset.target_sample_rate)
+		if self.to_spectrogram is None:
+			sample_rate = self.trainer.test_dataloaders.dataset.target_sample_rate if mode == "testing" else (
+				self.trainer.val_dataloaders.dataset.target_sample_rate)
 
-		to_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,
-															  n_fft=400,
-															  win_length=400,
-															  hop_length=160,
-															  n_mels=64).to(instruments.device)
+			self.to_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,
+																	   n_fft=400,
+																	   win_length=400,
+																	   hop_length=160,
+																	   n_mels=64).to(instruments.device)
 
 		instruments_name = ["bass", "drums", "guitar", "piano"]
 
@@ -93,22 +114,36 @@ class TransformerDecoder(L.LightningModule):
 
 			self.log(f"{mode}/l2_{instrument}_loss",
 					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
-					 on_epoch=True)
+					 on_step=False,
+					 on_epoch=True,
+					 prog_bar=True)
 
 			self.log(f"{mode}/l1_{instrument}_loss",
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
-					 on_epoch=True)
+					 on_step=False,
+					 on_epoch=True,
+					 prog_bar=True)
 
 			self.log(f"{mode}/si_sdr_{instrument}_measure",
 					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
 																						   :]).mean(),
-					 on_epoch=True)
+					 on_step=False,
+					 on_epoch=True,
+					 prog_bar=True)
 
 			self.log(f"{mode}/spectrogram_l2_{instrument}_loss",
-					 F.mse_loss(input=to_spectrogram(output[:, i, :]), target=to_spectrogram(instruments[:, i, :])),
-					 on_epoch=True)
+					 F.mse_loss(input=self.to_spectrogram(output[:, i, :]),
+								target=self.to_spectrogram(instruments[:, i, :])),
+					 on_step=False,
+					 on_epoch=True,
+					 prog_bar=True)
 
-		self.log(f"{mode}/loss", loss, on_epoch=True)
+		if mode == "validation":
+			self.val_loss(loss)
+			self.log(f"validation/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
+		else:
+			self.test_loss(loss)
+			self.log(f"test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
 
 		return loss
 
@@ -118,10 +153,6 @@ class TransformerDecoder(L.LightningModule):
 			# only log on the first batch of validation
 			if batch_idx != 0:
 				return
-
-			if outputs.item() < self.best_loss:
-				self.best_loss = outputs.item()
-				self.log("validation/best_loss", self.best_loss, on_epoch=True)
 
 			if not isinstance(self.logger, L.pytorch.loggers.wandb.WandbLogger):
 				return
@@ -159,19 +190,26 @@ class TransformerDecoder(L.LightningModule):
 				self.logger.log_table(key=f'DEMO EPOCH [{epoch}]', columns=columns, data=data)
 
 		except Exception:
-			print("CRASHED on_validation_batch_end")
+			print("crashed on_validation_batch_end")
 		finally:
 			return
 
 	def configure_optimizers(self):
 		""" Configure Adam Optimizer for training """
-		optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, amsgrad=False)
+		optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate, amsgrad=False)
 		return optimizer
+
+	def on_validation_epoch_end(self):
+		""" Run at the end of every validation epoch, use to update best loss """
+		loss = self.val_loss.compute()
+		self.val_best_loss(loss)
+		self.log("validation/best_loss", self.val_best_loss, on_step=False, on_epoch=True, prog_bar=True)
 
 
 class PositionalEncoding(nn.Module):
-	def __init__(self, d_model, max_len=10000):
+	def __init__(self, d_model: int, max_len: int = 10000):
 		super(PositionalEncoding, self).__init__()
+
 		pe = torch.zeros(max_len, d_model)
 		position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
 		div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))

@@ -15,15 +15,13 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from src.utils.plotting import plot_codebook, plot_embeddings_from_quantized, plot_spectrogram, plot_waveform
 from src.utils.util import extras, get_metric_value, task_wrapper
+from src.data.transform import Quantize
 
 torch.set_float32_matmul_precision('medium')
 
 
 @task_wrapper
-def train(cfg: DictConfig):
-	if cfg.get("seed"):
-		L.seed_everything(cfg.seed, workers=True)
-
+def train_vqvae(cfg: DictConfig):
 	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
@@ -55,6 +53,45 @@ def train(cfg: DictConfig):
 	return metric_dict, object_dict
 
 
+@task_wrapper
+def train_transformer(cfg: DictConfig):
+	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
+	vqvae.load_state_dict(torch.load(f"{cfg.paths.checkpoint_dir}/best_vqvae.ckpt",
+									 map_location=torch.device('gpu') if torch.cuda.is_available() else torch.device(
+										 'cpu'))['state_dict'])
+	vqvae.eval()
+
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, transform=Quantize(vqvae))
+
+	transformer: LightningModule = hydra.utils.instantiate(cfg.model.transformer)
+
+	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+
+	callbacks: List[Callback] = instantiate_callbacks(cfg.callbacks)
+
+	trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
+
+	object_dict = {
+		"cfg"       : cfg,
+		"datamodule": data_module,
+		"model"     : vqvae,
+		"callbacks" : callbacks,
+		"logger"    : logger,
+		"trainer"   : trainer, }
+
+	if cfg.train:
+		trainer.fit(model=transformer, datamodule=data_module, ckpt_path=cfg.ckpt_path)
+	train_metrics = trainer.callback_metrics
+
+	if cfg.test:
+		trainer.test(model=transformer, datamodule=data_module, ckpt_path=cfg.ckpt_path)
+	test_metrics = trainer.callback_metrics
+
+	metric_dict = {**train_metrics, **test_metrics}
+
+	return metric_dict, object_dict
+
+
 def visualize(cfg: DictConfig):
 	data_module: LightningDataModule = hydra.utils.instantiate(cfg.datamodule, batch_size=1)
 
@@ -75,12 +112,21 @@ def visualize(cfg: DictConfig):
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def main(cfg: DictConfig):
 	extras(cfg)
-	metric_dict, _ = train(cfg)
+
+	if cfg.get("seed"):
+		L.seed_everything(cfg.seed, workers=True)
+
+	metric_dict = {}
+	if cfg.train_vqvae:
+		metric_dict, _ = train_vqvae(cfg)
+
+	if cfg.train_transformer:
+		metric_dict, _ = train_transformer(cfg)
+
+	visualize(cfg)
 
 	# safely retrieve metric value for hydra-based hyperparameter optimization
 	metric_value = get_metric_value(metric_dict=metric_dict, metric_name=cfg.get("optimized_metric"))
-
-	# visualize(cfg)
 
 	# return optimized metric for optuna
 	return metric_value
