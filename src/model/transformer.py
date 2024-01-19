@@ -9,19 +9,24 @@ from torch.nn import functional as F
 from torchmetrics import MeanMetric, MinMetric
 from torchmetrics.functional.audio import scale_invariant_signal_distortion_ratio
 
+from src.utils.pylogger import RankedLogger
+
+log = RankedLogger(__name__, rank_zero_only=True)
+
 
 class TransformerDecoder(L.LightningModule):
 	def __init__(self,
-				 target_sample_rate: int,
-				 target_frame_length_sec: int,
+				 sample_rate: int,
+				 frame_length: int,
 				 learning_rate: float,
+				 checkpoint_dir: str,
 				 num_layers: int = 4,
 				 num_heads: int = 8,
 				 hidden_dim: int = 512):
 		super(TransformerDecoder, self).__init__()
 
-		output_dim = target_sample_rate * target_frame_length_sec
-		input_dim = (target_sample_rate * target_frame_length_sec) // 4
+		output_dim = sample_rate * frame_length
+		input_dim = (sample_rate * frame_length) // 4
 
 		self.embedding = nn.Linear(input_dim, hidden_dim)
 		self.positional_encoding = PositionalEncoding(hidden_dim)
@@ -34,7 +39,12 @@ class TransformerDecoder(L.LightningModule):
 		self.test_loss = MeanMetric()
 		self.val_loss = MeanMetric()
 
-		self.to_spectrogram = None
+		self.to_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=int(sample_rate),
+																   n_fft=400,
+																   win_length=400,
+																   hop_length=160,
+																   n_mels=64)
+
 		self.save_hyperparameters(logger=False)
 
 	def on_train_start(self):
@@ -43,6 +53,8 @@ class TransformerDecoder(L.LightningModule):
 		self.train_loss.reset()
 		self.test_loss.reset()
 		self.val_best_loss.reset()
+
+		self.to_spectrogram.to(self.device)
 
 	def training_step(self, batch, batch_idx):
 		quantized, instruments = batch
@@ -93,17 +105,6 @@ class TransformerDecoder(L.LightningModule):
 		""" Calculates losses during a validation and testing step """
 		quantized, instruments = batch
 		output = self.forward(quantized)
-
-		if self.to_spectrogram is None:
-			sample_rate = self.trainer.test_dataloaders.dataset.target_sample_rate if mode == "testing" else (
-				self.trainer.val_dataloaders.dataset.target_sample_rate)
-
-			self.to_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,
-																	   n_fft=400,
-																	   win_length=400,
-																	   hop_length=160,
-																	   n_mels=64).to(instruments.device)
-
 		instruments_name = ["bass", "drums", "guitar", "piano"]
 
 		# loss per instrument
@@ -166,31 +167,31 @@ class TransformerDecoder(L.LightningModule):
 				output = self.forward(quantized.unsqueeze(0))
 				output_instruments = output[0].squeeze()
 
-				sample_rate = self.trainer.val_dataloaders.dataset.target_sample_rate
 				epoch = self.trainer.current_epoch
 
 				data = [[], []]
 				for idx in range(4):
-					original_file = f'{self.checkpoint_dir}/original_{instruments_name[idx]}.wav'
-					decoded_file = f'{self.checkpoint_dir}/generated_{instruments_name[idx]}.wav'
+					original_file = f'{self.hparams.checkpoint_dir}/original_{instruments_name[idx]}.wav'
+					decoded_file = f'{self.hparams.checkpoint_dir}/generated_{instruments_name[idx]}.wav'
 
 					torchaudio.save(uri=original_file,
 									src=instruments[idx].unsqueeze(0).detach().cpu(),
-									sample_rate=sample_rate)
+									sample_rate=self.hparams.sample_rate)
 
 					torchaudio.save(uri=decoded_file,
 									src=output_instruments[idx].unsqueeze(0).detach().cpu(),
-									sample_rate=sample_rate)
+									sample_rate=self.hparams.sample_rate)
 
-					data[0].append(wandb.Audio(str(original_file), sample_rate=sample_rate))
-					data[1].append(wandb.Audio(str(decoded_file), sample_rate=sample_rate))
+					data[0].append(wandb.Audio(str(original_file), sample_rate=self.hparams.sample_rate))
+					data[1].append(wandb.Audio(str(decoded_file), sample_rate=self.hparams.sample_rate))
 
 				columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)']
 
 				self.logger.log_table(key=f'DEMO EPOCH [{epoch}]', columns=columns, data=data)
 
-		except Exception:
-			print("crashed on_validation_batch_end")
+		except Exception as err:
+			log.warning("Exception while executing -on validation batch end- during vqvae training")
+			log.warning(err)
 		finally:
 			return
 

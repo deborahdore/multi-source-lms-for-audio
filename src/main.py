@@ -19,12 +19,15 @@ from src.data.transform import Quantize
 
 torch.set_float32_matmul_precision('medium')
 
+device = torch.device('gpu') if torch.cuda.is_available() else torch.device('cpu')
+
 
 @task_wrapper
 def train_vqvae(cfg: DictConfig):
 	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
+	vqvae.to(device)
 
 	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
@@ -59,11 +62,13 @@ def train_transformer(cfg: DictConfig):
 	vqvae.load_state_dict(torch.load(f"{cfg.paths.checkpoint_dir}/best_vqvae.ckpt",
 									 map_location=torch.device('gpu') if torch.cuda.is_available() else torch.device(
 										 'cpu'))['state_dict'])
+	vqvae.to(device)
 	vqvae.eval()
 
 	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, transform=Quantize(vqvae))
 
 	transformer: LightningModule = hydra.utils.instantiate(cfg.model.transformer)
+	transformer.to(device)
 
 	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
@@ -93,12 +98,13 @@ def train_transformer(cfg: DictConfig):
 
 
 def visualize(cfg: DictConfig):
-	data_module: LightningDataModule = hydra.utils.instantiate(cfg.datamodule, batch_size=1)
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, batch_size=1)
+	data_module.setup(stage='predict')
 
 	instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
 	mixed, instruments = next(iter(data_module.predict_dataloader()))
 
-	plot_embeddings_from_quantized(cfg, batch=(mixed, instruments))
+	plot_embeddings_from_quantized(cfg, batch=(mixed, instruments), device=device)
 	plot_codebook(cfg)
 
 	for idx, instrument_name in enumerate(instruments_name):

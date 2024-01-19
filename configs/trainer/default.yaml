@@ -3,8 +3,9 @@ default_root_dir   : ${paths.output_dir}
 
 min_epochs         : 10 # prevents early stopping
 max_epochs         : 50
+max_time           : 01:11:00:00
 
 enable_progress_bar: True
 log_every_n_steps  : null
-accelerator        : 'gpu'
-devices            : 'auto'
+accelerator        : gpu
+devices            : auto

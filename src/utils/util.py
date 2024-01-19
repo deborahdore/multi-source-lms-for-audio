@@ -1,3 +1,4 @@
+import os
 import warnings
 from importlib.util import find_spec
 from pathlib import Path
@@ -47,6 +48,10 @@ def extras(cfg: DictConfig) -> None:
 	if cfg.extras.get("print_config"):
 		log.info("Printing config tree with Rich! <cfg.extras.print_config=True>")
 		print_config_tree(cfg, resolve=True, save_to_file=True)
+
+	# create directories
+	if not os.path.isdir(cfg.paths.checkpoint_dir): os.makedirs(cfg.paths.checkpoint_dir, exist_ok=True)
+	if not os.path.isdir(cfg.paths.plot_dir): os.makedirs(cfg.paths.plot_dir, exist_ok=True)
 
 
 def task_wrapper(task_func: Callable) -> Callable:

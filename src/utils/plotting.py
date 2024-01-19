@@ -29,7 +29,9 @@ def plot_codebook(cfg: DictConfig):
 	plt.savefig(f"{cfg.paths.plot_dir}/codebook.svg")
 
 
-def plot_embeddings_from_quantized(cfg: DictConfig, batch: Tuple[torch.Tensor, torch.Tensor]):
+def plot_embeddings_from_quantized(cfg: DictConfig,
+								   batch: Tuple[torch.Tensor, torch.Tensor],
+								   device: torch.device = torch.device('gpu')):
 	""" Plot codebook of VQVAE in a lower dimension using umap and visualize clusters using K-Means.
 	 	Visualize embeddings of the cluster with less distance from the input on the projected codebook space """
 	codebook_df = pd.read_csv(cfg.paths.codebook_file)
@@ -39,8 +41,8 @@ def plot_embeddings_from_quantized(cfg: DictConfig, batch: Tuple[torch.Tensor, t
 
 	instruments_name = ["bass", "drums", "guitar", "piano"]
 
-	checkpoint = torch.load(f"{cfg.paths.checkpoint_dir}/best_model.ckpt", map_location=torch.device('cpu'))
-	vqvae: LightningModule = hydra.utils.instantiate(cfg.model)
+	checkpoint = torch.load(f"{cfg.paths.checkpoint_dir}/best_model.ckpt", map_location=device)
+	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
 	vqvae.load_state_dict(checkpoint['state_dict'])
 	vqvae.eval()
 

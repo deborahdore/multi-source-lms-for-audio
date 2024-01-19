@@ -5,5 +5,5 @@ test_dir               : ${paths.test_dir} # path to the testing directory > can
 target_sample_rate     : 25000 # the rate at which instruments will be resampled
 target_frame_length_sec: 3 # total length of each sample
 batch_size             : 64
-num_workers            : 4
+num_workers            : 1
 pin_memory             : false
