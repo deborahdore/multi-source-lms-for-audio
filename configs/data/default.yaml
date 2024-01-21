@@ -6,4 +6,5 @@ target_sample_rate     : 25000 # the rate at which instruments will be resampled
 target_frame_length_sec: 3 # total length of each sample
 batch_size             : 64
 num_workers            : 1
-pin_memory             : false
+pin_memory             : False
+persistent_workers     : True

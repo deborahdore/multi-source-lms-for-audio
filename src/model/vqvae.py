@@ -50,12 +50,6 @@ class VQVAE(L.LightningModule):
 							   num_residual_layer=num_residual_layer,
 							   num_residual_hidden=num_residual_hidden)
 
-		self.val_best_loss = MinMetric()
-
-		self.train_loss = MeanMetric()
-		self.val_loss = MeanMetric()
-		self.test_loss = MeanMetric()
-
 		self.to_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,
 																   n_fft=400,
 																   win_length=400,
@@ -63,15 +57,6 @@ class VQVAE(L.LightningModule):
 																   n_mels=64)
 
 		self.save_hyperparameters(logger=False)
-
-	def on_train_start(self):
-		"""Lightning hook that is called when training begins."""
-		self.val_loss.reset()
-		self.train_loss.reset()
-		self.test_loss.reset()
-		self.val_best_loss.reset()
-
-		self.to_spectrogram.to(self.device)
 
 	def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
 		""" Training step with l2 loss on each instrument """
@@ -86,9 +71,8 @@ class VQVAE(L.LightningModule):
 		for i in range(4):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
-		self.train_loss(loss)
-		self.log("train/loss", self.train_loss, on_epoch=True, on_step=False, prog_bar=True)
-		self.log("train/perplexity", perplexity, on_epoch=True, on_step=False, prog_bar=True)
+		self.log("train/loss", loss, on_epoch=True, on_step=False, prog_bar=True)
+		self.log("train/perplexity", perplexity, on_epoch=True, on_step=False, prog_bar=False)
 
 		return loss
 
@@ -123,13 +107,13 @@ class VQVAE(L.LightningModule):
 		instruments_name = ["bass", "drums", "guitar", "piano"]
 
 		# embedding loss
-		self.log(f"{mode}/embedding_loss", embedding_loss, on_epoch=True, on_step=False, prog_bar=True)
+		self.log(f"{mode}/embedding_loss", embedding_loss, on_epoch=True, on_step=False, prog_bar=False)
 
 		# commitment loss
-		self.log(f"{mode}/commitment_loss", commitment_loss, on_epoch=True, on_step=False, prog_bar=True)
+		self.log(f"{mode}/commitment_loss", commitment_loss, on_epoch=True, on_step=False, prog_bar=False)
 
 		# perplexity
-		self.log(f"{mode}/perplexity", perplexity, on_epoch=True, on_step=False, prog_bar=True)
+		self.log(f"{mode}/perplexity", perplexity, on_epoch=True, on_step=False, prog_bar=False)
 
 		loss = embedding_loss + commitment_loss
 
@@ -143,14 +127,14 @@ class VQVAE(L.LightningModule):
 					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_epoch=True,
 					 on_step=False,
-					 prog_bar=True)
+					 prog_bar=False)
 
 			# L1 loss
 			self.log(f"{mode}/l1_{instrument}_loss",
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_epoch=True,
 					 on_step=False,
-					 prog_bar=True)
+					 prog_bar=False)
 
 			# SI-SDR
 			self.log(f"{mode}/si_sdr_{instrument}_measure",
@@ -158,7 +142,7 @@ class VQVAE(L.LightningModule):
 																						   :]).mean(),
 					 on_epoch=True,
 					 on_step=False,
-					 prog_bar=True)
+					 prog_bar=False)
 
 			# spectrogram l2 loss
 			self.log(f"{mode}/spectrogram_l2_{instrument}_loss",
@@ -166,36 +150,30 @@ class VQVAE(L.LightningModule):
 								target=self.to_spectrogram(instruments[:, i, :])),
 					 on_epoch=True,
 					 on_step=False,
-					 prog_bar=True)
+					 prog_bar=False)
 
 		# SI-SDR
 		self.log(f"{mode}/si_sdr_full_audio_measure",
 				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)).mean(),
 				 on_epoch=True,
 				 on_step=False,
-				 prog_bar=True)
+				 prog_bar=False)
 
 		# MSE loss
 		self.log(f"{mode}/l2_full_audio_loss",
 				 F.mse_loss(input=mixed_output, target=mixed.squeeze(1)),
 				 on_epoch=True,
 				 on_step=False,
-				 prog_bar=True)
+				 prog_bar=False)
 
 		# L1 loss
 		self.log(f"{mode}/l1_full_audio_loss",
 				 F.l1_loss(input=mixed_output, target=mixed.squeeze(1)),
 				 on_epoch=True,
 				 on_step=False,
-				 prog_bar=True)
+				 prog_bar=False)
 
-		if mode == 'validation':
-			self.val_loss(loss)
-			self.log(f"{mode}/loss", self.val_loss, on_epoch=True, on_step=False, prog_bar=True)
-		else:
-			# testing
-			self.test_loss(loss)
-			self.log(f"{mode}/loss", self.test_loss, on_epoch=True, on_step=False, prog_bar=True)
+		self.log(f"{mode}/loss", loss, on_epoch=True, on_step=False, prog_bar=True)
 
 		return loss
 
@@ -262,12 +240,6 @@ class VQVAE(L.LightningModule):
 			log.warning(err)
 		finally:
 			return
-
-	def on_validation_epoch_end(self):
-		""" Run at the end of every validation epoch, use to update best loss """
-		loss = self.val_loss.compute()
-		self.val_best_loss(loss)
-		self.log("validation/best_loss", self.val_best_loss, on_step=False, on_epoch=True, prog_bar=True)
 
 	def on_train_epoch_end(self):
 		""" At the end of each epoch save the codebook """

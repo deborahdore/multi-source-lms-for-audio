@@ -21,6 +21,7 @@ class SlakhDataModule(L.LightningDataModule):
 				 target_sample_rate: int,
 				 target_frame_length_sec: int,
 				 batch_size: int,
+				 persistent_workers: bool = True,
 				 num_workers: int = 1,
 				 pin_memory: bool = False,
 				 transform: Optional[Quantize] = None):
@@ -66,8 +67,9 @@ class SlakhDataModule(L.LightningDataModule):
 	def train_dataloader(self):
 		return DataLoader(self.train_dataset,
 						  batch_size=self.hparams.batch_size,
-						  num_workers=self.hparams.num_workers,
 						  pin_memory=self.hparams.pin_memory,
+						  num_workers=self.hparams.num_workers,
+						  persistent_workers=self.hparams.persistent_workers,
 						  drop_last=True,
 						  shuffle=True)
 
@@ -76,6 +78,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  batch_size=self.hparams.batch_size,
 						  num_workers=self.hparams.num_workers,
 						  pin_memory=self.hparams.pin_memory,
+						  persistent_workers=self.hparams.persistent_workers,
 						  drop_last=True,
 						  shuffle=False)
 
@@ -84,6 +87,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  batch_size=self.hparams.batch_size,
 						  num_workers=self.hparams.num_workers,
 						  pin_memory=self.hparams.pin_memory,
+						  persistent_workers=self.hparams.persistent_workers,
 						  drop_last=True,
 						  shuffle=False)
 
@@ -92,6 +96,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  batch_size=1,
 						  num_workers=self.hparams.num_workers,
 						  pin_memory=self.hparams.pin_memory,
+						  persistent_workers=self.hparams.persistent_workers,
 						  shuffle=False)
 
 	def on_after_batch_transfer(self, batch: Tuple[torch.Tensor, torch.Tensor], dataloader_idx: int):

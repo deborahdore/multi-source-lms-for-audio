@@ -25,8 +25,10 @@ trainer  :
   devices       : 1 # debuggers don't like multiprocessing
   detect_anomaly: true # raise exception if NaN or +/-inf is detected in any tensor
   fast_dev_run  : true
+  profiler      : simple
 
 data     :
-  num_workers: 0 # debuggers don't like multiprocessing
-  pin_memory : False # disable gpu memory pin
-  batch_size : 6
+  num_workers       : 0 # debuggers don't like multiprocessing
+  pin_memory        : False # disable gpu memory pin
+  batch_size        : 6
+  persistent_workers: False

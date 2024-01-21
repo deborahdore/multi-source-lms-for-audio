@@ -19,7 +19,7 @@ from src.data.transform import Quantize
 
 torch.set_float32_matmul_precision('medium')
 
-device = torch.device('gpu') if torch.cuda.is_available() else torch.device('cpu')
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 
 @task_wrapper
@@ -72,15 +72,20 @@ def train_transformer(cfg: DictConfig):
 
 	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
-	callbacks: List[Callback] = instantiate_callbacks(cfg.callbacks)
+	model_checkpoint_callback: Callback = hydra.utils.instantiate(cfg.callbacks.model_checkpoint,
+																  filename='best_transformer')
 
-	trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
+	early_stopping_callback: Callback = hydra.utils.instantiate(cfg.callbacks.early_stopping)
+
+	trainer: Trainer = hydra.utils.instantiate(cfg.trainer,
+											   callbacks=[model_checkpoint_callback, early_stopping_callback],
+											   logger=logger)
 
 	object_dict = {
 		"cfg"       : cfg,
 		"datamodule": data_module,
 		"model"     : vqvae,
-		"callbacks" : callbacks,
+		"callbacks" : [model_checkpoint_callback, early_stopping_callback],
 		"logger"    : logger,
 		"trainer"   : trainer, }
 

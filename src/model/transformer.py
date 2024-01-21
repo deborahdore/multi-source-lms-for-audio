@@ -34,11 +34,6 @@ class TransformerDecoder(L.LightningModule):
 		self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers)
 		self.fc = nn.Linear((hidden_dim * 64) // 4, output_dim)
 
-		self.val_best_loss = MinMetric()
-		self.train_loss = MeanMetric()
-		self.test_loss = MeanMetric()
-		self.val_loss = MeanMetric()
-
 		self.to_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=int(sample_rate),
 																   n_fft=400,
 																   win_length=400,
@@ -46,15 +41,6 @@ class TransformerDecoder(L.LightningModule):
 																   n_mels=64)
 
 		self.save_hyperparameters(logger=False)
-
-	def on_train_start(self):
-		"""Lightning hook that is called when training begins."""
-		self.val_loss.reset()
-		self.train_loss.reset()
-		self.test_loss.reset()
-		self.val_best_loss.reset()
-
-		self.to_spectrogram.to(self.device)
 
 	def training_step(self, batch, batch_idx):
 		quantized, instruments = batch
@@ -65,8 +51,7 @@ class TransformerDecoder(L.LightningModule):
 		for i in range(4):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
-		self.train_loss(loss)
-		self.log("train/loss", self.train_loss, on_epoch=True, on_step=False, prog_bar=True)
+		self.log("train/loss", loss, on_epoch=True, on_step=False, prog_bar=True)
 		return loss
 
 	def validation_step(self, batch, batch_idx):
@@ -117,34 +102,29 @@ class TransformerDecoder(L.LightningModule):
 					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_step=False,
 					 on_epoch=True,
-					 prog_bar=True)
+					 prog_bar=False)
 
 			self.log(f"{mode}/l1_{instrument}_loss",
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_step=False,
 					 on_epoch=True,
-					 prog_bar=True)
+					 prog_bar=False)
 
 			self.log(f"{mode}/si_sdr_{instrument}_measure",
 					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
 																						   :]).mean(),
 					 on_step=False,
 					 on_epoch=True,
-					 prog_bar=True)
+					 prog_bar=False)
 
 			self.log(f"{mode}/spectrogram_l2_{instrument}_loss",
 					 F.mse_loss(input=self.to_spectrogram(output[:, i, :]),
 								target=self.to_spectrogram(instruments[:, i, :])),
 					 on_step=False,
 					 on_epoch=True,
-					 prog_bar=True)
+					 prog_bar=False)
 
-		if mode == "validation":
-			self.val_loss(loss)
-			self.log(f"validation/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
-		else:
-			self.test_loss(loss)
-			self.log(f"test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
+		self.log(f"{mode}/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
 		return loss
 
@@ -199,12 +179,6 @@ class TransformerDecoder(L.LightningModule):
 		""" Configure Adam Optimizer for training """
 		optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate, amsgrad=False)
 		return optimizer
-
-	def on_validation_epoch_end(self):
-		""" Run at the end of every validation epoch, use to update best loss """
-		loss = self.val_loss.compute()
-		self.val_best_loss(loss)
-		self.log("validation/best_loss", self.val_best_loss, on_step=False, on_epoch=True, prog_bar=True)
 
 
 class PositionalEncoding(nn.Module):
