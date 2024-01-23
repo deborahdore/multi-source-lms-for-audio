@@ -12,57 +12,67 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class SlakhDataModule(L.LightningDataModule):
-	""" Custom Datamodule for Slakh Dataset"""
 
 	def __init__(self,
 				 train_dir: str,
 				 val_dir: str,
 				 test_dir: str,
 				 target_sample_rate: int,
-				 target_frame_length_sec: int,
+				 target_sample_duration: int,
+				 max_duration: int,
+				 maximum_dataset_size: int,
 				 batch_size: int,
 				 persistent_workers: bool = True,
 				 num_workers: int = 1,
 				 pin_memory: bool = False,
 				 transform: Optional[Quantize] = None):
+		"""
+		Custom Datamodule for Slakh
+
+		@param train_dir: path to the training directory
+		@param val_dir: path to the validation directory
+		@param test_dir: path to the testing directory
+		@param target_sample_rate: sample rate at which resample the songs
+		@param target_sample_duration: duration in seconds of the samples that will compose the dataloader's batch
+		@param max_duration: maximum duration in seconds of each song
+		@param maximum_dataset_size: maximum size of the dataset
+		@param batch_size: batch size of the dataloader
+		@param persistent_workers: retain workers
+		@param num_workers: number of workers for each dataloader
+		@param pin_memory
+		@param transform: optional transformation to apply to batch before training
+		"""
 
 		super().__init__()
 
-		self.test_dataset = None
 		self.train_dataset = None
 		self.val_dataset = None
+		self.test_dataset = None
 
 		self.transform = transform
 		self.save_hyperparameters(logger=False)
 
-	def setup(self, stage: Optional[str] = None):
-		"""
-		Lightning calls this method before `trainer.fit()`, `trainer.validate()`, `trainer.test()`,
-		and `trainer.predict()`
-
-		:param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
-		"""
-		log.info(f"Setting up stage {stage}")
-
-		if stage == 'fit':
-			self.train_dataset = SlakhDataset(self.hparams.train_dir,
-											  target_sample_rate=self.hparams.target_sample_rate,
-											  frame_length_sec=self.hparams.target_frame_length_sec)
-			self.val_dataset = SlakhDataset(self.hparams.val_dir,
-											target_sample_rate=self.hparams.target_sample_rate,
-											frame_length_sec=self.hparams.target_frame_length_sec)
-
-			log.info(f"Training dataset length: {len(self.train_dataset)}")
-			log.info(f"Validation dataset length: {len(self.val_dataset)}")
-
-		if stage == "test" or "predict":
-			if stage == "predict" and self.test_dataset is not None:
-				return
-
-			self.test_dataset = SlakhDataset(self.hparams.test_dir,
-											 target_sample_rate=self.hparams.target_sample_rate,
-											 frame_length_sec=self.hparams.target_frame_length_sec)
-			log.info(f"Testing dataset length: {len(self.test_dataset)}")
+	def setup(self, stage: str = None):
+		if stage == "fit":
+			if self.train_dataset is None:
+				self.train_dataset = SlakhDataset(self.hparams.train_dir,
+												  target_sample_rate=self.hparams.target_sample_rate,
+												  target_sample_duration=self.hparams.target_sample_duration,
+												  max_duration=self.hparams.max_duration,
+												  maximum_dataset_size=self.hparams.maximum_dataset_size)
+			if self.val_dataset is None:
+				self.val_dataset = SlakhDataset(self.hparams.val_dir,
+												target_sample_rate=self.hparams.target_sample_rate,
+												target_sample_duration=self.hparams.target_sample_duration,
+												max_duration=self.hparams.max_duration,
+												maximum_dataset_size=self.hparams.maximum_dataset_size)
+		else:
+			if self.test_dataset is None:
+				self.test_dataset = SlakhDataset(self.hparams.test_dir,
+												 target_sample_rate=self.hparams.target_sample_rate,
+												 target_sample_duration=self.hparams.target_sample_duration,
+												 max_duration=self.hparams.max_duration,
+												 maximum_dataset_size=self.hparams.maximum_dataset_size)
 
 	def train_dataloader(self):
 		return DataLoader(self.train_dataset,

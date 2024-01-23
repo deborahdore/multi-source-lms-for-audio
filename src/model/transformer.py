@@ -6,7 +6,6 @@ import torchaudio
 import wandb
 from torch import nn as nn, optim
 from torch.nn import functional as F
-from torchmetrics import MeanMetric, MinMetric
 from torchmetrics.functional.audio import scale_invariant_signal_distortion_ratio
 
 from src.utils.pylogger import RankedLogger
@@ -40,7 +39,7 @@ class TransformerDecoder(L.LightningModule):
 																   hop_length=160,
 																   n_mels=64)
 
-		self.save_hyperparameters(logger=False)
+		self.save_hyperparameters()
 
 	def training_step(self, batch, batch_idx):
 		quantized, instruments = batch
@@ -98,11 +97,7 @@ class TransformerDecoder(L.LightningModule):
 			instruments_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 			loss += instruments_loss
 
-			self.log(f"{mode}/l2_{instrument}_loss",
-					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
-					 on_step=False,
-					 on_epoch=True,
-					 prog_bar=False)
+			self.log(f"{mode}/l2_{instrument}_loss", instruments_loss, on_step=False, on_epoch=True, prog_bar=False)
 
 			self.log(f"{mode}/l1_{instrument}_loss",
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),

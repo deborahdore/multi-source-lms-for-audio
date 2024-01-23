@@ -8,7 +8,7 @@ val_dir       : ${paths.dataset_dir}/validation # path to validation dataset dir
 
 output_dir    : ${hydra:runtime.output_dir}/.. # path to output directory created by hydra
 work_dir      : ${hydra:runtime.cwd} # path to working directory !! do not remove otherwise optuna doesn't start
-log_dir       : ${paths.root_dir}/logs/ # path to log directory
+log_dir       : ${paths.root_dir}/logs # path to log directory
 checkpoint_dir: ${paths.log_dir}/train/runs/checkpoint # path to checkpoint directory
 plot_dir      : ${paths.log_dir}/train/runs/plot_dir # path to plot directory
 codebook_file : ${paths.log_dir}/train/runs/codebook.csv # path to codebook file

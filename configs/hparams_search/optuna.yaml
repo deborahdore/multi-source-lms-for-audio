@@ -2,16 +2,21 @@
 
 # python main.py -m hparams_search=optuna
 
-defaults          :
+defaults        :
   - override /hydra/sweeper: optuna
 
 # choose metric which Optuna will optimize
-optimized_metric  : "validation/loss"
-trainer.max_epochs: 25
+optimized_metric: "validation/loss"
+
+trainer         :
+  max_epochs : 20
+  num_nodes  : 1
+  devices    : -1
+  accelerator: ddp
 
 # Optuna hyperparameter search optimizes for value returned from function with @hydra.main decorator
 # docs: https://hydra.cc/docs/next/plugins/optuna_sweeper
-hydra             :
+hydra           :
   mode   : "MULTIRUN" # set hydra to multirun by default if this config is attached
 
   sweeper:

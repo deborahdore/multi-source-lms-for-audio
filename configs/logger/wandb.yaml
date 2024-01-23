@@ -11,4 +11,3 @@ wandb:
     init_timeout: 300
   magic    : True
   version  : null # pass id to resume experiment
-  resume   : null # enable anonymous logging

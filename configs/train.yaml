@@ -39,10 +39,10 @@ tags             : [ "dev" ]
 train            : True
 
 # set False to avoid VqVae training
-train_vqvae      : False
+train_vqvae      : True
 
 # set False to avoid Transformer training
-train_transformer: True
+train_transformer: False
 
 # evaluate on test set, using best model weights achieved during training
 # lightning chooses best weights based on the metric specified in checkpoint callback
