@@ -1,11 +1,11 @@
-_target_           : lightning.pytorch.trainer.Trainer
-default_root_dir   : ${paths.output_dir}
+_target_            : lightning.pytorch.trainer.Trainer
+default_root_dir    : ${paths.output_dir}
 
-min_epochs         : 5 # prevents early stopping
-max_epochs         : 30
-max_time           : 01:11:00:00
+min_epochs          : 5 # prevents early stopping
+max_epochs          : 30
+max_time            : 01:11:00:00
 
-enable_progress_bar: True
-log_every_n_steps  : null
-accelerator        : gpu
-devices            : -1
+enable_progress_bar : True
+log_every_n_steps   : null
+accelerator         : gpu
+devices             : -1

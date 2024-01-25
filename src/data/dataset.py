@@ -1,10 +1,13 @@
 import os
+from pathlib import Path
 
 import torch
 import torchaudio
 from torch.utils.data import Dataset
 
 from src.utils.pylogger import RankedLogger
+from os import listdir
+from os.path import isfile, join
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -15,7 +18,8 @@ class SlakhDataset(Dataset):
 				 target_sample_duration: int,
 				 target_sample_rate: int,
 				 max_duration: int,
-				 maximum_dataset_size: int):
+				 maximum_dataset_size: int,
+				 do_clean: bool = True):
 		"""
 		Custom Dataset for Slakh
 
@@ -32,15 +36,19 @@ class SlakhDataset(Dataset):
 		self.maximum_dataset_size = maximum_dataset_size  # maximum size of the dataset
 
 		# load file paths
-		self.file_paths = []
-		for sub_dir in [x for x in os.walk(data_dir)][0][1]:
-			self.file_paths.append(os.path.join(data_dir, sub_dir))
 
-		# clean and load dataset in memory
-		self.dataset_dict = {}
-		self.clean_and_load()
+		self.old_file_paths = []
+		for sub_dir in [x for x in os.walk(self.data_dir)][0][1]:
+			self.old_file_paths.append(os.path.join(self.data_dir, sub_dir))
 
-	def clean_and_load(self):
+		# clean and save dataset in memory
+		if do_clean:
+			self.clean_and_save()
+
+		self.new_file_paths = [join(f"{data_dir}_new", f) for f in listdir(f"{data_dir}_new") if
+							   isfile(os.path.join(f"{data_dir}_new", f)) and f.endswith(".wav")]
+
+	def clean_and_save(self):
 		"""
 			Clean dataset:
 			1. resample
@@ -53,24 +61,25 @@ class SlakhDataset(Dataset):
 				5.3 save in memory
 		"""
 		log.info(f"Dataset cleaning: {self.data_dir}")
+		Path(f"{self.data_dir}_new").mkdir(exist_ok=True, parents=True)
 
 		file_paths = []
 		dict_idx = 0
-		for idx in range(0, len(self.file_paths)):
+		for idx in range(len(self.old_file_paths)):
 
 			if dict_idx > self.maximum_dataset_size: break
 
 			instruments, num_of_instruments = self.get_stems(idx)
 
 			if num_of_instruments < 2:
-				log.info(f"Track {self.file_paths[idx]} with only one instrument")
+				log.info(f"Track {self.old_file_paths[idx]} with only one instrument")
 				continue
 
 			if int(torch.einsum('ij->', instruments)) == 0:
-				log.info(f"Track {self.file_paths[idx]} with only silence")
+				log.info(f"Track {self.old_file_paths[idx]} with only silence")
 				continue
 
-			file_paths.append(self.file_paths[idx])
+			file_paths.append(self.old_file_paths[idx])
 
 			for sub_idx in range(0, self.max_duration):
 				frame_start = sub_idx * self.target_sample_rate
@@ -79,11 +88,16 @@ class SlakhDataset(Dataset):
 
 				if int(torch.einsum('ij->', instruments_frame)) == 0:
 					continue
+				if instruments_frame.shape[-1] != self.target_sample_rate * self.target_sample_duration:
+					# drop last incomplete
+					continue
 
-				self.dataset_dict[dict_idx] = instruments_frame
+				torchaudio.save(uri=f"{self.data_dir}_new/Track{idx}_{sub_idx}.wav",
+								src=instruments.squeeze(),
+								sample_rate=self.target_sample_rate)
 				dict_idx += 1
 
-		self.file_paths = file_paths
+		self.old_file_paths = file_paths
 
 	def get_stems(self, idx: int):
 		""" Load instruments from folder, resample, trim and stack them into a 4xN matrix"""
@@ -91,7 +105,7 @@ class SlakhDataset(Dataset):
 		num_of_instruments = 0
 
 		for instrument in ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]:
-			file_path = os.path.join(self.file_paths[idx], instrument)
+			file_path = os.path.join(self.old_file_paths[idx], instrument)
 			if os.path.exists(file_path):
 				audio, sample_rate = torchaudio.load(file_path)
 				audio = self.resample(audio, sample_rate)
@@ -109,7 +123,7 @@ class SlakhDataset(Dataset):
 		return torch.stack(instrument_data).squeeze(), num_of_instruments
 
 	def __len__(self):
-		return len(self.dataset_dict)
+		return len(self.new_file_paths)
 
 	def resample(self, audio, original_freq):
 		""" Resample audio to insure every song is sampled at the same frequency"""
@@ -120,13 +134,12 @@ class SlakhDataset(Dataset):
 		song = song[:, int(self.target_sample_rate * trim):-int(self.target_sample_rate * trim)]
 		song_duration = song.size(1) // self.target_sample_rate
 		if song_duration > self.max_duration:
-			return song[:, :self.max_duration * self.target_sample_rate]
+			return song[:, :int(self.max_duration * self.target_sample_rate)]
 		else:
 			new_duration = (song_duration // self.target_sample_duration) * self.target_sample_duration
-			new_num_samples = int(new_duration * self.target_sample_rate)
-			return song[:, :new_num_samples]
+			return song[:, :int(new_duration * self.target_sample_rate)]
 
 	def __getitem__(self, idx: int):
-		instruments = self.dataset_dict[idx]
+		instruments, _ = torchaudio.load(self.new_file_paths[idx])
 		mixture = torch.einsum('ij->j', instruments).unsqueeze(0)
 		return mixture, instruments

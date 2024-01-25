@@ -7,7 +7,7 @@ import torchaudio
 import wandb
 from torch import nn as nn, optim
 from torch.nn import functional as F
-from torchmetrics.functional.audio import perceptual_evaluation_speech_quality, scale_invariant_signal_distortion_ratio
+from torchmetrics.functional.audio import scale_invariant_signal_distortion_ratio
 
 from src.model.components.decoder import Decoder
 from src.model.components.encoder import Encoder
@@ -50,7 +50,7 @@ class VQVAE(L.LightningModule):
 							   num_residual_layer=num_residual_layer,
 							   num_residual_hidden=num_residual_hidden)
 
-		self.perceptual_loss_model = PerceptualLoss()
+		self.perceptual_loss_model = PerceptualLoss(sample_rate)
 		self.save_hyperparameters()
 
 	def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
@@ -67,10 +67,16 @@ class VQVAE(L.LightningModule):
 		for i in range(4):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
-		loss += self.perceptual_loss_model(reconstructed=mixed_output, real=mixed)
+		perceptual_loss_full_audio = self.perceptual_loss_model(x=mixed_output, target=mixed.squeeze())
+		loss += perceptual_loss_full_audio
 
 		self.log("train/loss", loss, on_epoch=True, on_step=False, prog_bar=True)
 		self.log("train/perplexity", perplexity, on_epoch=True, on_step=False, prog_bar=False)
+		self.log("train/perceptual_loss_full_audio",
+				 perceptual_loss_full_audio,
+				 on_epoch=True,
+				 on_step=False,
+				 prog_bar=True)
 
 		return loss
 
@@ -123,16 +129,6 @@ class VQVAE(L.LightningModule):
 			# MSE loss
 			self.log(f"{mode}/l2_{instrument}_loss", instruments_loss, on_epoch=True, on_step=False, prog_bar=False)
 
-			# PERCEPTUAL evaluation
-			self.log(f"{mode}/perceptual_eval_{instrument}",
-					 perceptual_evaluation_speech_quality(preds=output[:, i, :],
-														  target=instruments[:, i, :],
-														  fs=8000,
-														  mode='nb'),
-					 on_epoch=True,
-					 on_step=False,
-					 prog_bar=False)
-
 			# L1 loss
 			self.log(f"{mode}/l1_{instrument}_loss",
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
@@ -169,13 +165,11 @@ class VQVAE(L.LightningModule):
 				 on_step=False,
 				 prog_bar=False)
 
-		perceptual_quality = perceptual_evaluation_speech_quality(preds=mixed_output,
-																  target=mixed.squeeze(1),
-																  fs=8000,
-																  mode='nb')
-		loss += -1 * perceptual_quality
-		self.log(f"{mode}/perceptual_quality_full_audio",
-				 perceptual_quality,
+		# Perceptual Loss
+		perceptual_loss_full_audio = self.perceptual_loss_model(x=mixed_output, target=mixed.squeeze())
+		loss += perceptual_loss_full_audio
+		self.log(f"{mode}/perceptual_loss_full_audio",
+				 perceptual_loss_full_audio,
 				 on_epoch=True,
 				 on_step=False,
 				 prog_bar=False)

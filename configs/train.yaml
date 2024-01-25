@@ -7,7 +7,7 @@ defaults         :
   - data: default
   - model: default
   - callbacks: default
-  - logger: wandb # set logger here or use command line (e.g. `python main.py logger=tensorboard`)
+  - logger: null # set logger here or use command line (e.g. `python main.py logger=tensorboard`)
   - trainer: default
   - paths: default
   - extras: default
