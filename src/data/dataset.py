@@ -16,7 +16,8 @@ class SlakhDataset(Dataset):
 				 target_sample_duration: int,
 				 target_sample_rate: int,
 				 max_duration: int,
-				 maximum_dataset_size: int):
+				 maximum_dataset_size: int,
+				 transform=None):
 		"""
 		Custom Dataset for Slakh
 
@@ -43,6 +44,7 @@ class SlakhDataset(Dataset):
 			self.clean_and_load()
 
 		self.data_list = json.load(open(self.save_file))
+		self.transform = transform
 
 	def clean_and_load(self):
 		"""
@@ -140,5 +142,9 @@ class SlakhDataset(Dataset):
 		elem_dict = self.data_list[idx]
 		instruments = torch.load(f"{self.data_dir}/tensor_{elem_dict.get('file_path_idx')}.pt")
 		instruments_frame = instruments[:, elem_dict.get('frame_start'):elem_dict.get('frame_end')]
+
+		if self.transform:
+			instruments_frame = self.transform(instruments_frame)
+
 		mixture_frame = torch.einsum('ij->j', instruments_frame).unsqueeze(0)
 		return mixture_frame, instruments_frame

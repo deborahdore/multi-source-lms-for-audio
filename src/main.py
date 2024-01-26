@@ -65,7 +65,10 @@ def train_transformer(cfg: DictConfig):
 	vqvae.to(device)
 	vqvae.eval()
 
-	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, transform=Quantize(vqvae))
+	quantizer = Quantize(vqvae)
+	masker = hydra.utils.instantiate(cfg.model.masker)
+
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, quantizer=quantizer, masker=masker)
 
 	transformer: LightningModule = hydra.utils.instantiate(cfg.model.transformer)
 	transformer.to(device)

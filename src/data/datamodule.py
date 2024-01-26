@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.data.dataset import SlakhDataset
-from src.data.transform import Quantize
+from src.data.transform import Quantize, Masking
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
@@ -25,7 +25,8 @@ class SlakhDataModule(L.LightningDataModule):
 				 persistent_workers: bool = True,
 				 num_workers: int = 1,
 				 pin_memory: bool = False,
-				 transform: Optional[Quantize] = None):
+				 quantizer: Optional[Quantize] = None,
+				 masker: Optional[Masking] = None):
 		"""
 		Custom Datamodule for Slakh
 
@@ -49,7 +50,8 @@ class SlakhDataModule(L.LightningDataModule):
 		self.val_dataset = None
 		self.test_dataset = None
 
-		self.transform = transform
+		self.quantize = quantizer
+		self.masking = masker
 		self.save_hyperparameters(logger=False)
 
 	def setup(self, stage: str = None):
@@ -64,7 +66,8 @@ class SlakhDataModule(L.LightningDataModule):
 							target_sample_rate=self.hparams.target_sample_rate,
 							target_sample_duration=self.hparams.target_sample_duration,
 							max_duration=self.hparams.max_duration,
-							maximum_dataset_size=self.hparams.maximum_dataset_size)
+							maximum_dataset_size=self.hparams.maximum_dataset_size,
+							transform=self.masking)
 
 	def train_dataloader(self):
 		return DataLoader(self.train_dataset,
@@ -103,6 +106,6 @@ class SlakhDataModule(L.LightningDataModule):
 
 	def on_after_batch_transfer(self, batch: Tuple[torch.Tensor, torch.Tensor], dataloader_idx: int):
 		mixed, instruments = batch
-		if self.transform:
-			return self.transform(mixed), instruments
+		if self.quantize:
+			return mixed, instruments, self.quantize(mixed)
 		return mixed, instruments

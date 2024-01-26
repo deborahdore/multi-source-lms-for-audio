@@ -33,16 +33,10 @@ class TransformerDecoder(L.LightningModule):
 		self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers)
 		self.fc = nn.Linear((hidden_dim * 64) // 4, output_dim)
 
-		self.to_spectrogram = torchaudio.transforms.MelSpectrogram(sample_rate=int(sample_rate),
-																   n_fft=400,
-																   win_length=400,
-																   hop_length=160,
-																   n_mels=64)
-
 		self.save_hyperparameters()
 
 	def training_step(self, batch, batch_idx):
-		quantized, instruments = batch
+		mixed, instruments, quantized = batch
 		output = self.forward(quantized)
 
 		# loss per instrument
@@ -87,8 +81,10 @@ class TransformerDecoder(L.LightningModule):
 
 	def calculate_loss(self, batch, mode: str):
 		""" Calculates losses during a validation and testing step """
-		quantized, instruments = batch
+		mixed, instruments, quantized = batch
 		output = self.forward(quantized)
+		mixed_output = torch.einsum('bij-> bj', output)
+
 		instruments_name = ["bass", "drums", "guitar", "piano"]
 
 		# loss per instrument
@@ -97,14 +93,16 @@ class TransformerDecoder(L.LightningModule):
 			instruments_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 			loss += instruments_loss
 
+			# MSE LOSS
 			self.log(f"{mode}/l2_{instrument}_loss", instruments_loss, on_step=False, on_epoch=True, prog_bar=False)
 
+			# L1 LOSS
 			self.log(f"{mode}/l1_{instrument}_loss",
 					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_step=False,
 					 on_epoch=True,
 					 prog_bar=False)
-
+			# SI_SDR
 			self.log(f"{mode}/si_sdr_{instrument}_measure",
 					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
 																						   :]).mean(),
@@ -112,15 +110,28 @@ class TransformerDecoder(L.LightningModule):
 					 on_epoch=True,
 					 prog_bar=False)
 
-			self.log(f"{mode}/spectrogram_l2_{instrument}_loss",
-					 F.mse_loss(input=self.to_spectrogram(output[:, i, :]),
-								target=self.to_spectrogram(instruments[:, i, :])),
-					 on_step=False,
-					 on_epoch=True,
-					 prog_bar=False)
+		# SI-SDR
+		self.log(f"{mode}/si_sdr_full_audio_measure",
+				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)).mean(),
+				 on_epoch=True,
+				 on_step=False,
+				 prog_bar=False)
+
+		# MSE loss
+		self.log(f"{mode}/l2_full_audio_loss",
+				 F.mse_loss(input=mixed_output, target=mixed.squeeze(1)),
+				 on_epoch=True,
+				 on_step=False,
+				 prog_bar=False)
+
+		# L1 loss
+		self.log(f"{mode}/l1_full_audio_loss",
+				 F.l1_loss(input=mixed_output, target=mixed.squeeze(1)),
+				 on_epoch=True,
+				 on_step=False,
+				 prog_bar=False)
 
 		self.log(f"{mode}/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-
 		return loss
 
 	def on_validation_batch_end(self, outputs: torch.Tensor, batch: Any, batch_idx: int, dataloader_idx: int = 0):
@@ -136,7 +147,7 @@ class TransformerDecoder(L.LightningModule):
 			instruments_name = ["bass", "drums", "guitar", "piano"]
 
 			with torch.no_grad():
-				quantized, instruments = batch
+				mixed, instruments, quantized = batch
 				quantized = quantized[0]
 				instruments = instruments[0]
 				output = self.forward(quantized.unsqueeze(0))

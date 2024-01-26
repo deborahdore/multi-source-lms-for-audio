@@ -19,4 +19,8 @@ transformer:
   num_layers    : 4
   num_heads     : 8
   hidden_dim    : 512
-
+masker     :
+  __target__  : src.data.transform.Masking
+  probability : 0.4
+  intra_source: True
+  inter_source: True
