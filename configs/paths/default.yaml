@@ -1,7 +1,7 @@
 root_dir      : ${oc.env:PROJECT_ROOT} # path to root directory
 
 
-dataset_dir   : ${paths.root_dir}/../slakh2100  # path to dataset directory
+dataset_dir   : /workspace/ddore/slakh2100  # path to dataset directory
 train_dir     : ${paths.dataset_dir}/train # path to train dataset directory
 test_dir      : ${paths.dataset_dir}/test # path to test dataset directory
 val_dir       : ${paths.dataset_dir}/validation # path to validation dataset directory

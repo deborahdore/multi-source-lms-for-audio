@@ -1,4 +1,3 @@
-import gc
 from typing import Optional, Tuple
 
 import lightning as L
@@ -26,7 +25,6 @@ class SlakhDataModule(L.LightningDataModule):
 				 persistent_workers: bool = True,
 				 num_workers: int = 1,
 				 pin_memory: bool = False,
-				 do_clean: bool = True,
 				 transform: Optional[Quantize] = None):
 		"""
 		Custom Datamodule for Slakh
@@ -55,27 +53,20 @@ class SlakhDataModule(L.LightningDataModule):
 		self.save_hyperparameters(logger=False)
 
 	def setup(self, stage: str = None):
-
-		if stage == "fit":
-			if self.train_dataset is None:
-				self.train_dataset = self.create_dataset(self.hparams.train_dir)
-			if self.val_dataset is None:
-				self.val_dataset = self.create_dataset(self.hparams.val_dir)
+		if stage == 'fit':
+			self.train_dataset = self.create_dataset(self.hparams.train_dir)
+			self.val_dataset = self.create_dataset(self.hparams.val_dir)
 		else:
-			if self.test_dataset is None:
-				self.test_dataset = self.create_dataset(self.hparams.test_dir)
+			self.test_dataset = self.create_dataset(self.hparams.test_dir)
 
 	def create_dataset(self, path: str):
 		return SlakhDataset(path,
 							target_sample_rate=self.hparams.target_sample_rate,
 							target_sample_duration=self.hparams.target_sample_duration,
 							max_duration=self.hparams.max_duration,
-							maximum_dataset_size=self.hparams.maximum_dataset_size,
-							do_clean=self.hparams.do_clean)
+							maximum_dataset_size=self.hparams.maximum_dataset_size)
 
 	def train_dataloader(self):
-		if self.train_dataset is None:
-			self.train_dataset = self.create_dataset(self.hparams.train_dir)
 		return DataLoader(self.train_dataset,
 						  batch_size=self.hparams.batch_size,
 						  pin_memory=self.hparams.pin_memory,
@@ -85,8 +76,6 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=True)
 
 	def val_dataloader(self):
-		if self.val_dataset is None:
-			self.val_dataset = self.create_dataset(self.hparams.val_dir)
 		return DataLoader(self.val_dataset,
 						  batch_size=self.hparams.batch_size,
 						  num_workers=self.hparams.num_workers,
@@ -96,8 +85,6 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=False)
 
 	def test_dataloader(self):
-		if self.test_dataset is None:
-			self.test_dataset = self.create_dataset(self.hparams.test_dir)
 		return DataLoader(self.test_dataset,
 						  batch_size=self.hparams.batch_size,
 						  num_workers=self.hparams.num_workers,
@@ -107,8 +94,6 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=False)
 
 	def predict_dataloader(self):
-		if self.test_dataset is None:
-			self.test_dataset = self.create_dataset(self.hparams.test_dir)
 		return DataLoader(self.test_dataset,
 						  batch_size=1,
 						  num_workers=self.hparams.num_workers,

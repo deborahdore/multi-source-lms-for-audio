@@ -1,13 +1,11 @@
+import json
 import os
-from pathlib import Path
 
 import torch
 import torchaudio
 from torch.utils.data import Dataset
 
 from src.utils.pylogger import RankedLogger
-from os import listdir
-from os.path import isfile, join
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -18,8 +16,7 @@ class SlakhDataset(Dataset):
 				 target_sample_duration: int,
 				 target_sample_rate: int,
 				 max_duration: int,
-				 maximum_dataset_size: int,
-				 do_clean: bool = True):
+				 maximum_dataset_size: int):
 		"""
 		Custom Dataset for Slakh
 
@@ -30,56 +27,55 @@ class SlakhDataset(Dataset):
 		"""
 
 		self.data_dir = data_dir  # dataset directory
+		self.save_file = os.path.join(data_dir, "dataset_dict.json")
 		self.target_sample_duration = target_sample_duration  # duration in seconds of each sample
 		self.target_sample_rate = target_sample_rate  # sampling rate
 		self.max_duration = max_duration  # maximum duration of a song
 		self.maximum_dataset_size = maximum_dataset_size  # maximum size of the dataset
-
 		# load file paths
 
-		self.old_file_paths = []
+		self.file_paths = []
 		for sub_dir in [x for x in os.walk(self.data_dir)][0][1]:
-			self.old_file_paths.append(os.path.join(self.data_dir, sub_dir))
+			self.file_paths.append(os.path.join(self.data_dir, sub_dir))
 
-		# clean and save dataset in memory
-		if do_clean:
-			self.clean_and_save()
+		self.data_list = []
+		if not os.path.isfile(self.save_file):
+			self.clean_and_load()
 
-		self.new_file_paths = [join(f"{data_dir}_new", f) for f in listdir(f"{data_dir}_new") if
-							   isfile(os.path.join(f"{data_dir}_new", f)) and f.endswith(".wav")]
+		self.data_list = json.load(open(self.save_file))
 
-	def clean_and_save(self):
+	def clean_and_load(self):
 		"""
 			Clean dataset:
 			1. resample
 			2. cut songs at 2 minutes
 			3. remove songs that only contain one instrument
 			4. delete tracks with only silence
-			5. for each song:
-				5.1 split song into frames, each having a fixed duration
-				5.2 check that the frame doesn't contain only silence
-				5.3 save in memory
+			5. save to a tensor
+			6. for each song:
+				6.1 split song into frames, each having a fixed duration
+				6.2 check that the frame doesn't contain only silence
+				6.3 drop last incomplete frame
+				6.4 save a dict with frame start and end for each frame
 		"""
 		log.info(f"Dataset cleaning: {self.data_dir}")
-		Path(f"{self.data_dir}_new").mkdir(exist_ok=True, parents=True)
+		assert self.save_file is not None
 
 		file_paths = []
-		dict_idx = 0
-		for idx in range(len(self.old_file_paths)):
-
-			if dict_idx > self.maximum_dataset_size: break
+		for idx in range(len(self.file_paths)):
 
 			instruments, num_of_instruments = self.get_stems(idx)
 
 			if num_of_instruments < 2:
-				log.info(f"Track {self.old_file_paths[idx]} with only one instrument")
+				log.info(f"Track {self.file_paths[idx]} with only one instrument")
 				continue
 
 			if int(torch.einsum('ij->', instruments)) == 0:
-				log.info(f"Track {self.old_file_paths[idx]} with only silence")
+				log.info(f"Track {self.file_paths[idx]} with only silence")
 				continue
 
-			file_paths.append(self.old_file_paths[idx])
+			file_paths.append(self.file_paths[idx])
+			torch.save(instruments, f'{self.data_dir}/tensor_{idx}.pt')
 
 			for sub_idx in range(0, self.max_duration):
 				frame_start = sub_idx * self.target_sample_rate
@@ -92,12 +88,13 @@ class SlakhDataset(Dataset):
 					# drop last incomplete
 					continue
 
-				torchaudio.save(uri=f"{self.data_dir}_new/Track{idx}_{sub_idx}.wav",
-								src=instruments.squeeze(),
-								sample_rate=self.target_sample_rate)
-				dict_idx += 1
+				self.data_list.append({'file_path_idx': idx, 'frame_start': frame_start, 'frame_end': frame_end})
 
-		self.old_file_paths = file_paths
+		self.file_paths = file_paths
+		with open(self.save_file, "w") as file:
+			json.dump(self.data_list, file)
+
+		log.info(f"Finished dataset cleaning: {self.data_dir}")
 
 	def get_stems(self, idx: int):
 		""" Load instruments from folder, resample, trim and stack them into a 4xN matrix"""
@@ -105,7 +102,7 @@ class SlakhDataset(Dataset):
 		num_of_instruments = 0
 
 		for instrument in ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]:
-			file_path = os.path.join(self.old_file_paths[idx], instrument)
+			file_path = os.path.join(self.file_paths[idx], instrument)
 			if os.path.exists(file_path):
 				audio, sample_rate = torchaudio.load(file_path)
 				audio = self.resample(audio, sample_rate)
@@ -123,7 +120,7 @@ class SlakhDataset(Dataset):
 		return torch.stack(instrument_data).squeeze(), num_of_instruments
 
 	def __len__(self):
-		return len(self.new_file_paths)
+		return len(self.data_list)
 
 	def resample(self, audio, original_freq):
 		""" Resample audio to insure every song is sampled at the same frequency"""
@@ -140,6 +137,8 @@ class SlakhDataset(Dataset):
 			return song[:, :int(new_duration * self.target_sample_rate)]
 
 	def __getitem__(self, idx: int):
-		instruments, _ = torchaudio.load(self.new_file_paths[idx])
-		mixture = torch.einsum('ij->j', instruments).unsqueeze(0)
-		return mixture, instruments
+		elem_dict = self.data_list[idx]
+		instruments = torch.load(f"{self.data_dir}/tensor_{elem_dict.get('file_path_idx')}.pt")
+		instruments_frame = instruments[:, elem_dict.get('frame_start'):elem_dict.get('frame_end')]
+		mixture_frame = torch.einsum('ij->j', instruments_frame).unsqueeze(0)
+		return mixture_frame, instruments_frame

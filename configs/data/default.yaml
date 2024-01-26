@@ -10,4 +10,3 @@ batch_size            : 64
 num_workers           : 1
 pin_memory            : False
 persistent_workers    : True
-do_clean              : False # clean the dataset - in this case choose as train dire /train - or not - chose /new_train
