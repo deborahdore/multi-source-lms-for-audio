@@ -17,8 +17,7 @@ from src.utils.plotting import plot_codebook, plot_embeddings_from_quantized, pl
 from src.utils.util import extras, get_metric_value, task_wrapper
 from src.data.transform import Quantize
 
-torch.set_float32_matmul_precision('medium')
-
+torch.set_float32_matmul_precision("medium")
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 
@@ -27,7 +26,6 @@ def train_vqvae(cfg: DictConfig):
 	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
-	vqvae.to(device)
 
 	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
@@ -137,7 +135,7 @@ def main(cfg: DictConfig):
 	if cfg.train_transformer:
 		metric_dict, _ = train_transformer(cfg)
 
-	visualize(cfg)
+	# visualize(cfg)
 
 	# safely retrieve metric value for hydra-based hyperparameter optimization
 	metric_value = get_metric_value(metric_dict=metric_dict, metric_name=cfg.get("optimized_metric"))

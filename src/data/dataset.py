@@ -44,7 +44,18 @@ class SlakhDataset(Dataset):
 			self.clean_and_load()
 
 		self.data_list = json.load(open(self.save_file))
+		self.data_dict = {}
+		self.load()
+
 		self.transform = transform
+
+	def load(self):
+		dict_idx = -1
+		for elem in self.data_list:
+			new_idx = elem.get('file_path_idx')
+			if dict_idx == new_idx: continue
+			dict_idx = new_idx
+			self.data_dict[dict_idx] = torch.load(f"{self.data_dir}/tensor_{dict_idx}.pt")
 
 	def clean_and_load(self):
 		"""
@@ -140,7 +151,8 @@ class SlakhDataset(Dataset):
 
 	def __getitem__(self, idx: int):
 		elem_dict = self.data_list[idx]
-		instruments = torch.load(f"{self.data_dir}/tensor_{elem_dict.get('file_path_idx')}.pt")
+		# instruments = torch.load(f"{self.data_dir}/tensor_{elem_dict.get('file_path_idx')}.pt")
+		instruments = self.data_dict[elem_dict.get('file_path_idx')]
 		instruments_frame = instruments[:, elem_dict.get('frame_start'):elem_dict.get('frame_end')]
 
 		if self.transform:

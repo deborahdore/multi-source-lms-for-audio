@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.data.dataset import SlakhDataset
-from src.data.transform import Quantize, Masking
+from src.data.transform import Masking, Quantize
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
@@ -46,62 +46,64 @@ class SlakhDataModule(L.LightningDataModule):
 
 		super().__init__()
 
-		self.train_dataset = None
-		self.val_dataset = None
-		self.test_dataset = None
+		self.train_dir = train_dir
+		self.val_dir = val_dir
+		self.test_dir = test_dir
 
 		self.quantize = quantizer
 		self.masking = masker
-		self.save_hyperparameters(logger=False)
 
-	def setup(self, stage: str = None):
-		if stage == 'fit':
-			self.train_dataset = self.create_dataset(self.hparams.train_dir)
-			self.val_dataset = self.create_dataset(self.hparams.val_dir)
-		else:
-			self.test_dataset = self.create_dataset(self.hparams.test_dir)
+		self.target_sample_rate = target_sample_rate
+		self.target_sample_duration = target_sample_duration
+		self.max_duration = max_duration
+		self.maximum_dataset_size = maximum_dataset_size
+		self.batch_size = batch_size
+		self.pin_memory = pin_memory
+		self.num_workers = num_workers
+		self.persistent_workers = persistent_workers
 
 	def create_dataset(self, path: str):
 		return SlakhDataset(path,
-							target_sample_rate=self.hparams.target_sample_rate,
-							target_sample_duration=self.hparams.target_sample_duration,
-							max_duration=self.hparams.max_duration,
-							maximum_dataset_size=self.hparams.maximum_dataset_size,
+							target_sample_rate=self.target_sample_rate,
+							target_sample_duration=self.target_sample_duration,
+							max_duration=self.max_duration,
+							maximum_dataset_size=self.maximum_dataset_size,
 							transform=self.masking)
 
 	def train_dataloader(self):
-		return DataLoader(self.train_dataset,
-						  batch_size=self.hparams.batch_size,
-						  pin_memory=self.hparams.pin_memory,
-						  num_workers=self.hparams.num_workers,
-						  persistent_workers=self.hparams.persistent_workers,
+		## !!! do not create a dataset during setup. Due to a lightning bug, it could downgrade the performances
+		return DataLoader(self.create_dataset(self.train_dir),
+						  batch_size=self.batch_size,
+						  pin_memory=self.pin_memory,
+						  num_workers=self.num_workers,
+						  persistent_workers=self.persistent_workers,
 						  drop_last=True,
 						  shuffle=True)
 
 	def val_dataloader(self):
-		return DataLoader(self.val_dataset,
-						  batch_size=self.hparams.batch_size,
-						  num_workers=self.hparams.num_workers,
-						  pin_memory=self.hparams.pin_memory,
-						  persistent_workers=self.hparams.persistent_workers,
+		return DataLoader(self.create_dataset(self.val_dir),
+						  batch_size=self.batch_size,
+						  num_workers=self.num_workers,
+						  pin_memory=self.pin_memory,
+						  persistent_workers=self.persistent_workers,
 						  drop_last=True,
 						  shuffle=False)
 
 	def test_dataloader(self):
-		return DataLoader(self.test_dataset,
-						  batch_size=self.hparams.batch_size,
-						  num_workers=self.hparams.num_workers,
-						  pin_memory=self.hparams.pin_memory,
-						  persistent_workers=self.hparams.persistent_workers,
+		return DataLoader(self.create_dataset(self.test_dir),
+						  batch_size=self.batch_size,
+						  num_workers=self.num_workers,
+						  pin_memory=self.pin_memory,
+						  persistent_workers=self.persistent_workers,
 						  drop_last=True,
 						  shuffle=False)
 
 	def predict_dataloader(self):
-		return DataLoader(self.test_dataset,
+		return DataLoader(self.create_dataset(self.test_dir),
 						  batch_size=1,
-						  num_workers=self.hparams.num_workers,
-						  pin_memory=self.hparams.pin_memory,
-						  persistent_workers=self.hparams.persistent_workers,
+						  num_workers=self.num_workers,
+						  pin_memory=self.pin_memory,
+						  persistent_workers=self.persistent_workers,
 						  shuffle=False)
 
 	def on_after_batch_transfer(self, batch: Tuple[torch.Tensor, torch.Tensor], dataloader_idx: int):

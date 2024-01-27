@@ -27,9 +27,6 @@ class PerceptualLoss(nn.Module):
 
 	def forward(self, x: torch.Tensor, target: torch.Tensor):
 		with torch.no_grad():
-			log.info(x.shape)
-			log.info(target.shape)
-
 			spectrogram_input = self.spectrogram(x)
 			spectrogram_target = self.spectrogram(target)
 

@@ -8,5 +8,5 @@ max_duration          : 120 # maximum duration of a song in seconds
 maximum_dataset_size  : 150000 # maximum size of the dataset
 batch_size            : 64
 num_workers           : 1
-pin_memory            : False
+pin_memory            : True
 persistent_workers    : True

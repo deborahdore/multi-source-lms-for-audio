@@ -1,7 +1,7 @@
 import torch
+import torch.nn.functional as F
 
 from src.model.vqvae import VQVAE
-import torch.nn.functional as F
 
 
 class Quantize(object):

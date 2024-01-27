@@ -20,15 +20,17 @@ hydra    :
       level: DEBUG
 
 trainer  :
-  max_epochs    : 1
-  accelerator   : cpu # debuggers don't like gpus
-  devices       : 1 # debuggers don't like multiprocessing
-  detect_anomaly: true # raise exception if NaN or +/-inf is detected in any tensor
-  fast_dev_run  : true
-  profiler      : simple
+  max_epochs         : 1
+  accelerator        : cpu # debuggers don't like gpus
+  devices            : 1 # debuggers don't like multiprocessing
+  detect_anomaly     : true # raise exception if NaN or +/-inf is detected in any tensor
+  fast_dev_run       : true
+  profiler           : simple
+  enable_progress_bar: False
+  log_every_n_steps  : null
 
 data     :
   num_workers       : 0 # debuggers don't like multiprocessing
   pin_memory        : False # disable gpu memory pin
-  batch_size        : 6
+  batch_size        : 64
   persistent_workers: False

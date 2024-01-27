@@ -51,16 +51,15 @@ class VQVAE(L.LightningModule):
 							   num_residual_hidden=num_residual_hidden)
 
 		self.perceptual_loss_model = PerceptualLoss(sample_rate)
-		self.save_hyperparameters()
+		self.save_hyperparameters("learning_rate", "checkpoint_dir", "codebook_file", "sample_rate")
 
 	def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
 		""" Training step with l2 loss on each instrument """
 		mixed, instruments = batch
-
 		# commitment loss + embedding loss
 		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
-		mixed_output = torch.einsum('bij-> bj', output)
 
+		mixed_output = torch.einsum('bij-> bj', output)
 		loss = embedding_loss + commitment_loss
 
 		# loss per instrument
@@ -71,13 +70,6 @@ class VQVAE(L.LightningModule):
 		loss += perceptual_loss_full_audio
 
 		self.log("train/loss", loss, on_epoch=True, on_step=False, prog_bar=True)
-		self.log("train/perplexity", perplexity, on_epoch=True, on_step=False, prog_bar=False)
-		self.log("train/perceptual_loss_full_audio",
-				 perceptual_loss_full_audio,
-				 on_epoch=True,
-				 on_step=False,
-				 prog_bar=True)
-
 		return loss
 
 	def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
