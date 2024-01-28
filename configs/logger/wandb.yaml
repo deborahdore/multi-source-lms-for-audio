@@ -3,11 +3,10 @@
 wandb:
   _target_ : lightning.pytorch.loggers.wandb.WandbLogger
   name     : "vqvae"
-  project  : "DLAI PROJECT"
+  project  : "DLAI Experiments"
   save_dir : ${paths.output_dir}
   log_model: False # upload lightning ckpts
   offline  : False
   settings :
     init_timeout: 300
-  magic    : True
   version  : null # pass id to resume experiment

@@ -1,3 +1,4 @@
+import random
 from typing import Any, Tuple
 
 import lightning as L
@@ -69,7 +70,7 @@ class VQVAE(L.LightningModule):
 		perceptual_loss_full_audio = self.perceptual_loss_model(x=mixed_output, target=mixed.squeeze())
 		loss += perceptual_loss_full_audio
 
-		self.log("train/loss", loss, on_epoch=True, on_step=False, prog_bar=True)
+		self.log("train/loss", loss, on_epoch=True, on_step=False, prog_bar=False)
 		return loss
 
 	def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
@@ -166,7 +167,7 @@ class VQVAE(L.LightningModule):
 				 on_step=False,
 				 prog_bar=False)
 
-		self.log(f"{mode}/loss", loss, on_epoch=True, on_step=False, prog_bar=True)
+		self.log(f"{mode}/loss", loss, on_epoch=True, on_step=False, prog_bar=False)
 
 		return loss
 
@@ -189,8 +190,10 @@ class VQVAE(L.LightningModule):
 
 			with torch.no_grad():
 				mixed, instruments = batch
-				mixed = mixed[0]
-				instruments = instruments[0]
+				index = random.randint(0, mixed.size(0))
+				mixed = mixed[index]
+				instruments = instruments[index]
+
 				output = self.forward(mixed.unsqueeze(0))
 				output_instruments = output[0].squeeze()
 
