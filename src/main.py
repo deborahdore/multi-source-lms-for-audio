@@ -1,3 +1,4 @@
+import os.path
 from typing import List
 
 import hydra
@@ -15,7 +16,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from src.utils.plotting import plot_codebook, plot_embeddings_from_quantized, plot_spectrogram, plot_waveform
 from src.utils.util import extras, get_metric_value, task_wrapper
-from src.data.transform import Quantize
+from src.data.transform import Quantize, Masking
 
 torch.set_float32_matmul_precision("medium")
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -23,10 +24,10 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 
 @task_wrapper
 def train_vqvae(cfg: DictConfig):
-	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data)
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data.datamodule)
 
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
-
+	vqvae = vqvae.to(device)
 	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
 	callbacks: List[Callback] = instantiate_callbacks(cfg.callbacks)
@@ -57,36 +58,40 @@ def train_vqvae(cfg: DictConfig):
 @task_wrapper
 def train_transformer(cfg: DictConfig):
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
-	vqvae.load_state_dict(torch.load(f"{cfg.paths.checkpoint_dir}/best_vqvae.ckpt",
-									 map_location=torch.device('gpu') if torch.cuda.is_available() else torch.device(
-										 'cpu'))['state_dict'])
+	best_vqvae_file = f"{cfg.paths.checkpoint_dir}/best_vqvae.ckpt"
+	assert os.path.exists(best_vqvae_file)
+	state_dict = torch.load(best_vqvae_file, map_location=device)['state_dict']
+	vqvae.load_state_dict(state_dict)
 	vqvae.to(device)
 	vqvae.eval()
 
-	quantizer = Quantize(vqvae)
-	masker = hydra.utils.instantiate(cfg.model.masker)
+	quantizer: Quantize = Quantize(vqvae)
 
-	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, quantizer=quantizer, masker=masker)
+	masker: Masking = hydra.utils.instantiate(cfg.data.masker)
+
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data.datamodule, quantizer=quantizer, masker=masker)
 
 	transformer: LightningModule = hydra.utils.instantiate(cfg.model.transformer)
 	transformer.to(device)
 
 	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
-	model_checkpoint_callback: Callback = hydra.utils.instantiate(cfg.callbacks.model_checkpoint,
-																  filename='best_transformer')
+	callbacks = None
+	if "callbacks" in cfg.keys() and cfg.callbacks is not None:
+		model_checkpoint_callback: Callback = hydra.utils.instantiate(cfg.callbacks.model_checkpoint,
+																	  filename='best_transformer')
 
-	early_stopping_callback: Callback = hydra.utils.instantiate(cfg.callbacks.early_stopping)
+		early_stopping_callback: Callback = hydra.utils.instantiate(cfg.callbacks.early_stopping)
 
-	trainer: Trainer = hydra.utils.instantiate(cfg.trainer,
-											   callbacks=[model_checkpoint_callback, early_stopping_callback],
-											   logger=logger)
+		callbacks = [model_checkpoint_callback, early_stopping_callback]
+
+	trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
 
 	object_dict = {
 		"cfg"       : cfg,
 		"datamodule": data_module,
 		"model"     : vqvae,
-		"callbacks" : [model_checkpoint_callback, early_stopping_callback],
+		"callbacks" : callbacks,
 		"logger"    : logger,
 		"trainer"   : trainer, }
 

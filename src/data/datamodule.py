@@ -108,6 +108,7 @@ class SlakhDataModule(L.LightningDataModule):
 
 	def on_after_batch_transfer(self, batch: Tuple[torch.Tensor, torch.Tensor], dataloader_idx: int):
 		mixed, instruments = batch
+
 		if self.quantize:
 			return mixed, instruments, self.quantize(mixed)
 		return mixed, instruments

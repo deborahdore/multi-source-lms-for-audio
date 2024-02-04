@@ -1,0 +1,13 @@
+datamodule:
+  _target_              : src.data.datamodule.SlakhDataModule
+  train_dir             : ${paths.train_dir} # path to the training directory > can be modified in paths
+  val_dir               : ${paths.val_dir} # path to the validation directory > can be modified in paths
+  test_dir              : ${paths.test_dir} # path to the testing directory > can be modified in paths
+  target_sample_rate    : 22000 # the rate at which instruments will be resampled
+  target_sample_duration: 5 # total length of each sample
+  max_duration          : 120 # maximum duration of a song in seconds
+  maximum_dataset_size  : 150000 # maximum size of the dataset
+  batch_size            : 64
+  num_workers           : 1
+  pin_memory            : True
+  persistent_workers    : True

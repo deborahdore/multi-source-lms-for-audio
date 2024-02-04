@@ -1,13 +1,12 @@
+import lightning as L
 import torch
 import torch.nn.functional as F
-
-from src.model.vqvae import VQVAE
 
 
 class Quantize(object):
 	""" Custom Transform """
 
-	def __init__(self, vqvae: VQVAE):
+	def __init__(self, vqvae: L.LightningModule):
 		self.vqvae = vqvae
 		self.vqvae.eval()
 
@@ -21,10 +20,10 @@ class Masking(object):
 		self.intra_source = intra_source
 		self.inter_source = inter_source
 
-	def __call__(self, x):
+	def __call__(self, x: torch.Tensor):
 		if self.intra_source:
 			# intra-source masking: masking between different sound sources in a mixture
-			rows_to_zero = torch.randperm(4)[:torch.randint(1, 5, (1,))]
+			rows_to_zero = torch.randperm(4)[:torch.randint(0, 3, (1,))]
 			x[rows_to_zero, :] = 0
 
 		if self.inter_source:

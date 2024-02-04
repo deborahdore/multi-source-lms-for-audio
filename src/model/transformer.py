@@ -1,3 +1,4 @@
+import random
 from typing import Any
 
 import lightning as L
@@ -13,7 +14,7 @@ from src.utils.pylogger import RankedLogger
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
-class TransformerDecoder(L.LightningModule):
+class TransformerQuantizerDecoder(L.LightningModule):
 	def __init__(self,
 				 sample_rate: int,
 				 frame_length: int,
@@ -22,18 +23,18 @@ class TransformerDecoder(L.LightningModule):
 				 num_layers: int = 4,
 				 num_heads: int = 8,
 				 hidden_dim: int = 512):
-		super(TransformerDecoder, self).__init__()
+		super(TransformerQuantizerDecoder, self).__init__()
+
+		self.save_hyperparameters()
 
 		output_dim = sample_rate * frame_length
 		input_dim = (sample_rate * frame_length) // 4
 
 		self.embedding = nn.Linear(input_dim, hidden_dim)
 		self.positional_encoding = PositionalEncoding(hidden_dim)
-		decoder_layer = nn.TransformerDecoderLayer(hidden_dim, num_heads)
-		self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers)
+		decoder_layer = nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=num_heads)
+		self.transformer_decoder = nn.TransformerDecoder(decoder_layer=decoder_layer, num_layers=num_layers)
 		self.fc = nn.Linear((hidden_dim * 64) // 4, output_dim)
-
-		self.save_hyperparameters()
 
 	def training_step(self, batch, batch_idx):
 		mixed, instruments, quantized = batch
@@ -44,7 +45,7 @@ class TransformerDecoder(L.LightningModule):
 		for i in range(4):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
-		self.log("train/loss", loss, on_epoch=True, on_step=False, prog_bar=True)
+		self.log("train/loss", loss, on_epoch=True, on_step=True, prog_bar=True)
 		return loss
 
 	def validation_step(self, batch, batch_idx):
@@ -67,7 +68,7 @@ class TransformerDecoder(L.LightningModule):
 
 		# Transformer decoder
 		tgt_mask = nn.Transformer.generate_square_subsequent_mask(seq_len).to(x.device)
-		memory = torch.zeros(seq_len, batch_size, self.hidden_dim).to(x.device)  # Initialize memory
+		memory = torch.zeros(seq_len, batch_size, self.hparams.hidden_dim).to(x.device)  # Initialize memory
 
 		output = self.transformer_decoder(x, memory, tgt_mask=tgt_mask)
 
@@ -148,8 +149,11 @@ class TransformerDecoder(L.LightningModule):
 
 			with torch.no_grad():
 				mixed, instruments, quantized = batch
-				quantized = quantized[0]
-				instruments = instruments[0]
+				index = random.randint(0, mixed.size(0))
+				mixed = mixed[index]
+				instruments = instruments[index]
+				quantized = quantized[index]
+
 				output = self.forward(quantized.unsqueeze(0))
 				output_instruments = output[0].squeeze()
 
@@ -171,12 +175,24 @@ class TransformerDecoder(L.LightningModule):
 					data[0].append(wandb.Audio(str(original_file), sample_rate=self.hparams.sample_rate))
 					data[1].append(wandb.Audio(str(decoded_file), sample_rate=self.hparams.sample_rate))
 
-				columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)']
+				original_full_file = f'{self.hparams.checkpoint_dir}/original_full_song.wav'
+				decoded_full_file = f'{self.hparams.checkpoint_dir}/generated_full_song.wav'
+
+				torchaudio.save(uri=original_full_file, src=mixed.detach().cpu(), sample_rate=self.hparams.sample_rate)
+				torchaudio.save(uri=decoded_full_file,
+								src=torch.einsum('ij-> j', output_instruments).unsqueeze(0).detach().cpu(),
+								sample_rate=self.hparams.sample_rate)
+
+				data[0].append(wandb.Audio(str(original_full_file), sample_rate=self.hparams.sample_rate))
+				data[1].append(wandb.Audio(str(decoded_full_file), sample_rate=self.hparams.sample_rate))
+
+				columns = ['bass vs D(bass)', 'drums vs D(drums)', 'guitar vs D(guitar)', 'piano vs D(piano)',
+						   'mixed vs D(mixed)']
 
 				self.logger.log_table(key=f'DEMO EPOCH [{epoch}]', columns=columns, data=data)
 
 		except Exception as err:
-			log.warning("Exception while executing -on validation batch end- during vqvae training")
+			log.warning("Exception while executing -on validation batch end- during transformer training")
 			log.warning(err)
 		finally:
 			return
