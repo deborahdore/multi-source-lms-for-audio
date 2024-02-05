@@ -182,7 +182,7 @@ class VQVAE(L.LightningModule):
 
 			with torch.no_grad():
 				mixed, instruments = batch
-				index = random.randint(0, mixed.size(0))
+				index = random.randint(0, mixed.size(0)-1)
 				mixed = mixed[index]
 				instruments = instruments[index]
 

@@ -149,7 +149,7 @@ class TransformerQuantizerDecoder(L.LightningModule):
 
 			with torch.no_grad():
 				mixed, instruments, quantized = batch
-				index = random.randint(0, mixed.size(0))
+				index = random.randint(0, mixed.size(0)-1)
 				mixed = mixed[index]
 				instruments = instruments[index]
 				quantized = quantized[index]
