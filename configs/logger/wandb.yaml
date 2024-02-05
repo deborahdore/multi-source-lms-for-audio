@@ -2,8 +2,8 @@
 
 wandb:
   _target_ : lightning.pytorch.loggers.wandb.WandbLogger
-  name     : "Transformer MSE/No masking"
-  project  : "DLAI Transformer Experiments"
+  name     : "MSE no masking"
+  project  : "DLAI TRANSFORMERS EXPERIMENTS"
   save_dir : ${paths.output_dir}
   log_model: False # upload lightning ckpts
   offline  : False

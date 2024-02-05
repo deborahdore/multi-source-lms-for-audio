@@ -34,6 +34,8 @@ class VQVAE(L.LightningModule):
 				 codebook_file: str):
 		super(VQVAE, self).__init__()
 
+		self.save_hyperparameters()
+
 		self.encoder = Encoder(in_channel=1,
 							   num_hidden=num_hidden,
 							   num_residual_layer=num_residual_layer,
@@ -49,8 +51,6 @@ class VQVAE(L.LightningModule):
 							   num_hidden=num_hidden,
 							   num_residual_layer=num_residual_layer,
 							   num_residual_hidden=num_residual_hidden)
-
-		self.save_hyperparameters("learning_rate", "checkpoint_dir", "codebook_file", "sample_rate")
 
 	def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
 		""" Training step with l2 loss on each instrument """

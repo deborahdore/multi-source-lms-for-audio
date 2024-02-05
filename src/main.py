@@ -27,7 +27,7 @@ def train_vqvae(cfg: DictConfig):
 	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data.datamodule)
 
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
-	vqvae = vqvae.to(device)
+	vqvae.to(device)
 	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
 	callbacks: List[Callback] = instantiate_callbacks(cfg.callbacks)
