@@ -2,6 +2,7 @@ import json
 import os
 
 import torch
+import torch.nn.functional as F
 import torchaudio
 from torch.utils.data import Dataset
 
@@ -17,7 +18,10 @@ class SlakhDataset(Dataset):
 				 target_sample_rate: int,
 				 max_duration: int,
 				 maximum_dataset_size: int,
-				 transform=None):
+				 do_masking: bool = False,
+				 intra_source: bool = False,
+				 inter_source: bool = False,
+				 probability: float = 0.2):
 		"""
 		Custom Dataset for Slakh
 
@@ -33,6 +37,11 @@ class SlakhDataset(Dataset):
 		self.target_sample_rate = target_sample_rate  # sampling rate
 		self.max_duration = max_duration  # maximum duration of a song
 		self.maximum_dataset_size = maximum_dataset_size  # maximum size of the dataset
+		self.do_masking = do_masking
+		self.intra_source = intra_source
+		self.inter_source = inter_source
+		self.probability = probability
+
 		# load file paths
 
 		self.file_paths = []
@@ -46,8 +55,6 @@ class SlakhDataset(Dataset):
 		self.data_list = json.load(open(self.save_file))
 		self.data_dict = {}
 		self.load()
-
-		self.transform = transform
 
 	def load(self):
 		dict_idx = -1
@@ -149,14 +156,34 @@ class SlakhDataset(Dataset):
 			new_duration = (song_duration // self.target_sample_duration) * self.target_sample_duration
 			return song[:, :int(new_duration * self.target_sample_rate)]
 
+	def masking(self, x: torch.Tensor):
+		if self.intra_source:
+			num_non_zero_rows = (x.sum(dim=1) != 0).sum().item()  # total numer of instruments
+			max_instruments_to_mask = min(num_non_zero_rows - 2, 3)  # always leave 2 instruments unmasked at least
+
+			if max_instruments_to_mask > 0:
+				# randomly select how many instruments to mask
+				num_instruments_to_mask = torch.randint(1, max_instruments_to_mask + 1, (1,))
+				# randomly select rows to mask
+				rows_to_mask = torch.randperm(num_non_zero_rows)[:num_instruments_to_mask]
+
+				for row in rows_to_mask:
+					x[row.item(), :] = 0
+
+		if self.inter_source:
+			# Inter-source masking: apply dropout across the entire input tensor
+			x = F.dropout(x, p=self.probability, training=True)
+
+		return x
+
 	def __getitem__(self, idx: int):
 		elem_dict = self.data_list[idx]
-		# instruments = torch.load(f"{self.data_dir}/tensor_{elem_dict.get('file_path_idx')}.pt")
 		instruments = self.data_dict[elem_dict.get('file_path_idx')]
 		instruments_frame = instruments[:, elem_dict.get('frame_start'):elem_dict.get('frame_end')]
 
-		if self.transform:
-			instruments_frame = self.transform(instruments_frame)
+		if self.do_masking:
+			mixture_frame_masked = torch.einsum('ij->j', self.masking(instruments_frame)).unsqueeze(0)
+			return mixture_frame_masked, instruments_frame
 
 		mixture_frame = torch.einsum('ij->j', instruments_frame).unsqueeze(0)
 		return mixture_frame, instruments_frame

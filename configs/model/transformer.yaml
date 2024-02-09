@@ -1,7 +1,7 @@
 transformer:
   _target_      : src.model.transformer.TransformerQuantizerDecoder
-  sample_rate   : ${data.datamodule.target_sample_rate}
-  frame_length  : ${data.datamodule.target_sample_duration}
+  sample_rate   : ${data.target_sample_rate}
+  frame_length  : ${data.target_sample_duration}
   learning_rate : 1e-4
   checkpoint_dir: ${paths.checkpoint_dir}
   num_layers    : 4

@@ -51,6 +51,7 @@ def extras(cfg: DictConfig) -> None:
 
 	# create directories
 	if not os.path.isdir(cfg.paths.checkpoint_dir): os.makedirs(cfg.paths.checkpoint_dir, exist_ok=True)
+	if not os.path.isdir(cfg.paths.best_checkpoint_dir): os.makedirs(cfg.paths.best_checkpoint_dir, exist_ok=True)
 	if not os.path.isdir(cfg.paths.plot_dir): os.makedirs(cfg.paths.plot_dir, exist_ok=True)
 
 

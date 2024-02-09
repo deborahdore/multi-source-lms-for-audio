@@ -2,7 +2,7 @@
 
 model_checkpoint:
   _target_               : lightning.pytorch.callbacks.ModelCheckpoint
-  dirpath                : ${paths.checkpoint_dir} # directory to save the model file
+  dirpath                : ${paths.best_checkpoint_dir} # directory to save the model file
   filename               : "best_vqvae" # checkpoint filename
   monitor                : "validation/loss" # name of the logged metric which determines when model is improving
   verbose                : false # verbosity mode

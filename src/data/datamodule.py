@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.data.dataset import SlakhDataset
-from src.data.transform import Masking, Quantize
+from src.data.transform import Quantize
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
@@ -25,8 +25,11 @@ class SlakhDataModule(L.LightningDataModule):
 				 persistent_workers: bool = True,
 				 num_workers: int = 1,
 				 pin_memory: bool = False,
-				 quantizer: Optional[Quantize] = None,
-				 masker: Optional[Masking] = None):
+				 do_masking: bool = False,
+				 intra_source: bool = False,
+				 inter_source: bool = False,
+				 probability: float = 0.2,
+				 quantizer: Optional[Quantize] = None):
 		"""
 		Custom Datamodule for Slakh
 
@@ -51,7 +54,6 @@ class SlakhDataModule(L.LightningDataModule):
 		self.test_dir = test_dir
 
 		self.quantize = quantizer
-		self.masking = masker
 
 		self.target_sample_rate = target_sample_rate
 		self.target_sample_duration = target_sample_duration
@@ -61,18 +63,32 @@ class SlakhDataModule(L.LightningDataModule):
 		self.pin_memory = pin_memory
 		self.num_workers = num_workers
 		self.persistent_workers = persistent_workers
+		self.do_masking = do_masking
+		self.intra_source = intra_source
+		self.inter_source = inter_source
+		self.probability = probability
 
-	def create_dataset(self, path: str):
+	def create_dataset(self, path: str, do_masking: bool = False):
+		if do_masking:
+			return SlakhDataset(path,
+								target_sample_rate=self.target_sample_rate,
+								target_sample_duration=self.target_sample_duration,
+								max_duration=self.max_duration,
+								maximum_dataset_size=self.maximum_dataset_size,
+								do_masking=self.do_masking,
+								intra_source=self.intra_source,
+								inter_source=self.inter_source,
+								probability=self.probability)
+
 		return SlakhDataset(path,
 							target_sample_rate=self.target_sample_rate,
 							target_sample_duration=self.target_sample_duration,
 							max_duration=self.max_duration,
-							maximum_dataset_size=self.maximum_dataset_size,
-							transform=self.masking)
+							maximum_dataset_size=self.maximum_dataset_size)
 
 	def train_dataloader(self):
 		## !!! do not create a dataset during setup. Due to a lightning bug, it could downgrade the performances
-		return DataLoader(self.create_dataset(self.train_dir),
+		return DataLoader(self.create_dataset(self.train_dir, do_masking=self.do_masking),
 						  batch_size=self.batch_size,
 						  pin_memory=self.pin_memory,
 						  num_workers=self.num_workers,
@@ -81,7 +97,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=True)
 
 	def val_dataloader(self):
-		return DataLoader(self.create_dataset(self.val_dir),
+		return DataLoader(self.create_dataset(self.val_dir, do_masking=False),
 						  batch_size=self.batch_size,
 						  num_workers=self.num_workers,
 						  pin_memory=self.pin_memory,
@@ -90,7 +106,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=False)
 
 	def test_dataloader(self):
-		return DataLoader(self.create_dataset(self.test_dir),
+		return DataLoader(self.create_dataset(self.test_dir, do_masking=False),
 						  batch_size=self.batch_size,
 						  num_workers=self.num_workers,
 						  pin_memory=self.pin_memory,
@@ -99,7 +115,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=False)
 
 	def predict_dataloader(self):
-		return DataLoader(self.create_dataset(self.test_dir),
+		return DataLoader(self.create_dataset(self.test_dir, do_masking=False),
 						  batch_size=1,
 						  num_workers=self.num_workers,
 						  pin_memory=self.pin_memory,

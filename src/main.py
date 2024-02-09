@@ -16,7 +16,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from src.utils.plotting import plot_codebook, plot_embeddings_from_quantized, plot_spectrogram, plot_waveform
 from src.utils.util import extras, get_metric_value, task_wrapper
-from src.data.transform import Quantize, Masking
+from src.data.transform import Quantize
 
 torch.set_float32_matmul_precision("medium")
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -24,7 +24,7 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 
 @task_wrapper
 def train_vqvae(cfg: DictConfig):
-	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data.datamodule)
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
 	vqvae.to(device)
@@ -58,7 +58,7 @@ def train_vqvae(cfg: DictConfig):
 @task_wrapper
 def train_transformer(cfg: DictConfig):
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
-	best_vqvae_file = f"{cfg.paths.checkpoint_dir}/best_vqvae.ckpt"
+	best_vqvae_file = f"{cfg.paths.best_checkpoint_dir}/best_vqvae.ckpt"
 	assert os.path.exists(best_vqvae_file)
 	state_dict = torch.load(best_vqvae_file, map_location=device)['state_dict']
 	vqvae.load_state_dict(state_dict)
@@ -67,9 +67,7 @@ def train_transformer(cfg: DictConfig):
 
 	quantizer: Quantize = Quantize(vqvae)
 
-	masker: Masking = hydra.utils.instantiate(cfg.data.masker)
-
-	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data.datamodule, quantizer=quantizer, masker=masker)
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, quantizer=quantizer)
 
 	transformer: LightningModule = hydra.utils.instantiate(cfg.model.transformer)
 	transformer.to(device)
@@ -129,7 +127,6 @@ def visualize(cfg: DictConfig):
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def main(cfg: DictConfig):
 	extras(cfg)
-
 	if cfg.get("seed"):
 		L.seed_everything(cfg.seed, workers=True)
 

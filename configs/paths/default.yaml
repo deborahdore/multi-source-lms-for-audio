@@ -1,14 +1,16 @@
-root_dir      : ${oc.env:PROJECT_ROOT} # path to root directory
+root_dir           : ${oc.env:PROJECT_ROOT} # path to root directory
 
 
-dataset_dir   : /workspace/ddore/slakh2100  # path to dataset directory
-train_dir     : ${paths.dataset_dir}/train # path to train dataset directory
-test_dir      : ${paths.dataset_dir}/test # path to test dataset directory
-val_dir       : ${paths.dataset_dir}/validation # path to validation dataset directory
+dataset_dir        : /workspace/ddore/slakh2100  # path to dataset directory
+train_dir          : ${paths.dataset_dir}/train # path to train dataset directory
+test_dir           : ${paths.dataset_dir}/test # path to test dataset directory
+val_dir            : ${paths.dataset_dir}/validation # path to validation dataset directory
 
-output_dir    : ${hydra:runtime.output_dir}/.. # path to output directory created by hydra
-work_dir      : ${hydra:runtime.cwd} # path to working directory !! do not remove otherwise optuna doesn't start
-log_dir       : ${paths.root_dir}/logs # path to log directory
-checkpoint_dir: ${paths.log_dir}/train/runs/checkpoint # path to checkpoint directory
-plot_dir      : ${paths.log_dir}/train/runs/plot_dir # path to plot directory
-codebook_file : ${paths.log_dir}/train/runs/codebook.csv # path to codebook file
+output_dir         : ${hydra:runtime.output_dir} # path to output directory created by hydra
+work_dir           : ${hydra:runtime.cwd} # path to working directory !! do not remove otherwise optuna doesn't start
+log_dir            : ${paths.root_dir}/logs # path to log directory
+checkpoint_dir     : ${paths.output_dir}/checkpoint # path to checkpoint directory
+plot_dir           : ${paths.log_dir}/plot_dir # path to plot directory
+
+best_checkpoint_dir: ${paths.log_dir}/best_checkpoint # path to checkpoint directory
+codebook_file      : ${paths.best_checkpoint_dir}/codebook.csv # path to codebook file

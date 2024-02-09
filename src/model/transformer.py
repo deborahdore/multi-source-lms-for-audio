@@ -23,6 +23,7 @@ class TransformerQuantizerDecoder(L.LightningModule):
 				 num_layers: int = 4,
 				 num_heads: int = 8,
 				 hidden_dim: int = 512):
+
 		super(TransformerQuantizerDecoder, self).__init__()
 
 		self.save_hyperparameters()
@@ -59,7 +60,7 @@ class TransformerQuantizerDecoder(L.LightningModule):
 		batch_size = x.size(0)
 		seq_len = x.size(1)
 
-		# Reshape the input to (sequence_length, batch_size, input_dim)
+		# Mask and reshape the input to (sequence_length, batch_size, input_dim)
 		x = x.permute(1, 0, 2)
 
 		# Embedding the input
@@ -149,7 +150,7 @@ class TransformerQuantizerDecoder(L.LightningModule):
 
 			with torch.no_grad():
 				mixed, instruments, quantized = batch
-				index = random.randint(0, mixed.size(0)-1)
+				index = random.randint(0, mixed.size(0) - 1)
 				mixed = mixed[index]
 				instruments = instruments[index]
 				quantized = quantized[index]

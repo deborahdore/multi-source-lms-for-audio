@@ -1,5 +1,0 @@
-masker:
-  _target_    : src.data.transform.Masking
-  probability : 0.2
-  intra_source: False
-  inter_source: False

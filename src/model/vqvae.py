@@ -53,7 +53,7 @@ class VQVAE(L.LightningModule):
 							   num_residual_hidden=num_residual_hidden)
 
 	def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-		""" Training step with l2 loss on each instrument """
+		""" Training step with l1 loss on each instrument """
 		mixed, instruments = batch
 		# commitment loss + embedding loss
 		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
@@ -63,13 +63,9 @@ class VQVAE(L.LightningModule):
 
 		# loss per instrument
 		for i in range(4):
-			mse_loss_instrument = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
-			si_sdr_instrument = scale_invariant_signal_distortion_ratio(preds=output[:, i, :],
-																		target=instruments[:, i, :]).mean()
+			loss += F.l1_loss(input=output[:, i, :], target=instruments[:, i, :])
 
-			loss += mse_loss_instrument + (-0.25 * si_sdr_instrument)
-
-		self.log("train/loss", loss, on_epoch=True, on_step=False, prog_bar=False)
+		self.log("train/loss", loss, on_epoch=True, on_step=True, prog_bar=True)
 		self.log("train/perplexity", perplexity, on_epoch=True, on_step=False, prog_bar=False)
 
 		return loss
@@ -117,13 +113,15 @@ class VQVAE(L.LightningModule):
 
 		# loss per instrument
 		for i, instrument in enumerate(instruments_name):
-			instruments_loss = F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
-			si_sdr_instrument = scale_invariant_signal_distortion_ratio(preds=output[:, i, :],
-																		target=instruments[:, i, :]).mean()
-			loss += instruments_loss + (-0.25 * si_sdr_instrument)
+			instruments_loss = F.l1_loss(input=output[:, i, :], target=instruments[:, i, :])
+			loss += instruments_loss
 
 			# MSE loss
-			self.log(f"{mode}/l2_{instrument}_loss", instruments_loss, on_epoch=True, on_step=False, prog_bar=False)
+			self.log(f"{mode}/l2_{instrument}_loss",
+					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
+					 on_epoch=True,
+					 on_step=False,
+					 prog_bar=False)
 
 			# L1 loss
 			self.log(f"{mode}/l1_{instrument}_loss",
@@ -134,7 +132,8 @@ class VQVAE(L.LightningModule):
 
 			# SI-SDR
 			self.log(f"{mode}/si_sdr_{instrument}_measure",
-					 si_sdr_instrument,
+					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
+																						   :]).mean(),
 					 on_epoch=True,
 					 on_step=False,
 					 prog_bar=False)
@@ -160,7 +159,7 @@ class VQVAE(L.LightningModule):
 				 on_step=False,
 				 prog_bar=False)
 
-		self.log(f"{mode}/loss", loss, on_epoch=True, on_step=False, prog_bar=False)
+		self.log(f"{mode}/loss", loss, on_epoch=True, on_step=False, prog_bar=True)
 		return loss
 
 	def configure_optimizers(self):
@@ -182,7 +181,7 @@ class VQVAE(L.LightningModule):
 
 			with torch.no_grad():
 				mixed, instruments = batch
-				index = random.randint(0, mixed.size(0)-1)
+				index = random.randint(0, mixed.size(0) - 1)
 				mixed = mixed[index]
 				instruments = instruments[index]
 
