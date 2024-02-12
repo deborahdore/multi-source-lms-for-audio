@@ -26,8 +26,6 @@ class SlakhDataModule(L.LightningDataModule):
 				 num_workers: int = 1,
 				 pin_memory: bool = False,
 				 masking: bool = False,
-				 train_bert: bool = False,
-				 train_transformer: bool = False,
 				 quantizer: Optional[Quantize] = None):
 		"""
 		Custom Datamodule for Slakh
@@ -115,10 +113,8 @@ class SlakhDataModule(L.LightningDataModule):
 
 	def on_after_batch_transfer(self, batch: Tuple[torch.Tensor, torch.Tensor], dataloader_idx: int):
 		if self.quantize:
-			if self.train_bert:
-				return self.quantize.get_encodings_idx(batch), batch
-			if self.train_transformer:
-				return self.quantize.get_quantized(batch), batch
+			# return self.quantize.get_quantized(batch), batch
+			return self.quantize.get_encodings_idx(batch), batch
 
 		# train vqvae
 		mixture_frame = torch.einsum('ij->j', batch)

@@ -10,5 +10,3 @@ batch_size            : 64
 num_workers           : 1
 pin_memory            : True
 masking               : True
-train_bert            : ${train_bert}
-train_transformer     : ${train_transformer}
