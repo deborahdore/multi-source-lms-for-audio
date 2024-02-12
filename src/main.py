@@ -77,7 +77,7 @@ def train_transformer(cfg: DictConfig):
 	callbacks = None
 	if "callbacks" in cfg.keys() and cfg.callbacks is not None:
 		model_checkpoint_callback: Callback = hydra.utils.instantiate(cfg.callbacks.model_checkpoint,
-																	  filename='best_transformer')
+																	  filename="best_transformer")
 
 		early_stopping_callback: Callback = hydra.utils.instantiate(cfg.callbacks.early_stopping)
 
@@ -99,6 +99,60 @@ def train_transformer(cfg: DictConfig):
 
 	if cfg.test:
 		trainer.test(model=transformer, datamodule=data_module, ckpt_path=cfg.ckpt_path)
+	test_metrics = trainer.callback_metrics
+
+	metric_dict = {**train_metrics, **test_metrics}
+
+	return metric_dict, object_dict
+
+
+@task_wrapper
+def train_bert(cfg: DictConfig):
+	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
+	best_vqvae_file = f"{cfg.paths.best_checkpoint_dir}/best_vqvae.ckpt"
+	assert os.path.exists(best_vqvae_file)
+	state_dict = torch.load(best_vqvae_file, map_location=device)['state_dict']
+	vqvae.load_state_dict(state_dict)
+	vqvae.to(device)
+	vqvae.eval()
+
+	quantizer: Quantize = Quantize(vqvae)
+
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, quantizer=quantizer)
+
+	bert: LightningModule = hydra.utils.instantiate(cfg.model.bert)
+
+	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+
+	callbacks = None
+	if "callbacks" in cfg.keys() and cfg.callbacks is not None:
+		model_checkpoint_callback: Callback = hydra.utils.instantiate(cfg.callbacks.model_checkpoint,
+																	  filename='best_bert')
+
+		early_stopping_callback: Callback = hydra.utils.instantiate(cfg.callbacks.early_stopping)
+
+		callbacks = [model_checkpoint_callback, early_stopping_callback]
+
+	trainer: Trainer = hydra.utils.instantiate(cfg.trainer,
+											   callbacks=callbacks,
+											   logger=logger,
+											   max_epochs=3,
+											   min_epochs=1)
+
+	object_dict = {
+		"cfg"       : cfg,
+		"datamodule": data_module,
+		"model"     : vqvae,
+		"callbacks" : callbacks,
+		"logger"    : logger,
+		"trainer"   : trainer, }
+
+	if cfg.train:
+		trainer.fit(model=bert, datamodule=data_module, ckpt_path=cfg.ckpt_path)
+	train_metrics = trainer.callback_metrics
+
+	if cfg.test:
+		trainer.test(model=bert, datamodule=data_module, ckpt_path=cfg.ckpt_path)
 	test_metrics = trainer.callback_metrics
 
 	metric_dict = {**train_metrics, **test_metrics}
@@ -136,6 +190,9 @@ def main(cfg: DictConfig):
 
 	if cfg.train_transformer:
 		metric_dict, _ = train_transformer(cfg)
+
+	if cfg.train_bert:
+		metric_dict, _ = train_bert(cfg)
 
 	# visualize(cfg)
 

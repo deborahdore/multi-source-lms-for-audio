@@ -25,10 +25,9 @@ class SlakhDataModule(L.LightningDataModule):
 				 persistent_workers: bool = True,
 				 num_workers: int = 1,
 				 pin_memory: bool = False,
-				 do_masking: bool = False,
-				 intra_source: bool = False,
-				 inter_source: bool = False,
-				 probability: float = 0.2,
+				 masking: bool = False,
+				 train_bert: bool = False,
+				 train_transformer: bool = False,
 				 quantizer: Optional[Quantize] = None):
 		"""
 		Custom Datamodule for Slakh
@@ -44,7 +43,10 @@ class SlakhDataModule(L.LightningDataModule):
 		@param persistent_workers: retain workers
 		@param num_workers: number of workers for each dataloader
 		@param pin_memory
-		@param transform: optional transformation to apply to batch before training
+		@param masking: apply masking to audio
+		@param train_bert: if True, returns encoding idx of codebook as batch first element
+		@param train_transformer: if True, returns quantized representation as batch first element
+		@param quantizer: object that performs quantization
 		"""
 
 		super().__init__()
@@ -54,6 +56,8 @@ class SlakhDataModule(L.LightningDataModule):
 		self.test_dir = test_dir
 
 		self.quantize = quantizer
+		self.train_transformer = train_transformer
+		self.train_bert = train_bert
 
 		self.target_sample_rate = target_sample_rate
 		self.target_sample_duration = target_sample_duration
@@ -63,32 +67,19 @@ class SlakhDataModule(L.LightningDataModule):
 		self.pin_memory = pin_memory
 		self.num_workers = num_workers
 		self.persistent_workers = persistent_workers
-		self.do_masking = do_masking
-		self.intra_source = intra_source
-		self.inter_source = inter_source
-		self.probability = probability
+		self.masking = masking
 
-	def create_dataset(self, path: str, do_masking: bool = False):
-		if do_masking:
-			return SlakhDataset(path,
-								target_sample_rate=self.target_sample_rate,
-								target_sample_duration=self.target_sample_duration,
-								max_duration=self.max_duration,
-								maximum_dataset_size=self.maximum_dataset_size,
-								do_masking=self.do_masking,
-								intra_source=self.intra_source,
-								inter_source=self.inter_source,
-								probability=self.probability)
-
+	def create_dataset(self, path: str):
 		return SlakhDataset(path,
 							target_sample_rate=self.target_sample_rate,
 							target_sample_duration=self.target_sample_duration,
 							max_duration=self.max_duration,
-							maximum_dataset_size=self.maximum_dataset_size)
+							maximum_dataset_size=self.maximum_dataset_size,
+							masking=self.masking)
 
 	def train_dataloader(self):
 		## !!! do not create a dataset during setup. Due to a lightning bug, it could downgrade the performances
-		return DataLoader(self.create_dataset(self.train_dir, do_masking=self.do_masking),
+		return DataLoader(self.create_dataset(self.train_dir),
 						  batch_size=self.batch_size,
 						  pin_memory=self.pin_memory,
 						  num_workers=self.num_workers,
@@ -97,7 +88,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=True)
 
 	def val_dataloader(self):
-		return DataLoader(self.create_dataset(self.val_dir, do_masking=False),
+		return DataLoader(self.create_dataset(self.val_dir),
 						  batch_size=self.batch_size,
 						  num_workers=self.num_workers,
 						  pin_memory=self.pin_memory,
@@ -106,7 +97,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=False)
 
 	def test_dataloader(self):
-		return DataLoader(self.create_dataset(self.test_dir, do_masking=False),
+		return DataLoader(self.create_dataset(self.test_dir),
 						  batch_size=self.batch_size,
 						  num_workers=self.num_workers,
 						  pin_memory=self.pin_memory,
@@ -115,7 +106,7 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=False)
 
 	def predict_dataloader(self):
-		return DataLoader(self.create_dataset(self.test_dir, do_masking=False),
+		return DataLoader(self.create_dataset(self.test_dir),
 						  batch_size=1,
 						  num_workers=self.num_workers,
 						  pin_memory=self.pin_memory,
@@ -123,8 +114,12 @@ class SlakhDataModule(L.LightningDataModule):
 						  shuffle=False)
 
 	def on_after_batch_transfer(self, batch: Tuple[torch.Tensor, torch.Tensor], dataloader_idx: int):
-		mixed, instruments = batch
-
 		if self.quantize:
-			return mixed, instruments, self.quantize(mixed)
-		return mixed, instruments
+			if self.train_bert:
+				return self.quantize.get_encodings_idx(batch), batch
+			if self.train_transformer:
+				return self.quantize.get_quantized(batch), batch
+
+		# train vqvae
+		mixture_frame = torch.einsum('ij->j', batch)
+		return torch.stack([mixture_frame] * 4, dim=0), batch

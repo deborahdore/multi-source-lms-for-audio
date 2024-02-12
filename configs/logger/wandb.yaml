@@ -2,8 +2,8 @@
 
 wandb:
   _target_ : lightning.pytorch.loggers.wandb.WandbLogger
-  name     : "L2/0.2 masking"
-  project  : "DLAI Transformer Hyper-tuning"
+  name     : "BERT"
+  project  : "DLAI_TRANSFORMERS"
   save_dir : ${paths.output_dir}
   log_model: False # upload lightning ckpts
   offline  : False

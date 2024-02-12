@@ -28,9 +28,12 @@ trainer  :
   profiler           : simple
   enable_progress_bar: False
   log_every_n_steps  : null
+  limit_train_batches: 0.1
+  limit_val_batches  : 0.1
+  limit_test_batches : 0.1
 
 data     :
   num_workers       : 0 # debuggers don't like multiprocessing
   pin_memory        : False # disable gpu memory pin
-  batch_size        : 64
+  batch_size        : 2
   persistent_workers: False

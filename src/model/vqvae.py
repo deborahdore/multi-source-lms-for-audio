@@ -36,7 +36,7 @@ class VQVAE(L.LightningModule):
 
 		self.save_hyperparameters()
 
-		self.encoder = Encoder(in_channel=1,
+		self.encoder = Encoder(in_channel=4,
 							   num_hidden=num_hidden,
 							   num_residual_layer=num_residual_layer,
 							   num_residual_hidden=num_residual_hidden)
@@ -94,8 +94,12 @@ class VQVAE(L.LightningModule):
 
 	def calculate_loss(self, batch, mode: str):
 		""" Calculates losses during a validation and testing step """
-		mixed, instruments = batch
-		output, embedding_loss, commitment_loss, perplexity = self.forward(mixed)
+		mixture, instruments = batch
+		output, embedding_loss, commitment_loss, perplexity = self.forward(mixture)
+
+		del mixture
+
+		original_mixture = torch.einsum('bij-> bj', instruments)
 		mixed_output = torch.einsum('bij-> bj', output)
 
 		instruments_name = ["bass", "drums", "guitar", "piano"]
@@ -113,8 +117,7 @@ class VQVAE(L.LightningModule):
 
 		# loss per instrument
 		for i, instrument in enumerate(instruments_name):
-			instruments_loss = F.l1_loss(input=output[:, i, :], target=instruments[:, i, :])
-			loss += instruments_loss
+			loss += F.l1_loss(input=output[:, i, :], target=instruments[:, i, :])
 
 			# MSE loss
 			self.log(f"{mode}/l2_{instrument}_loss",
@@ -140,21 +143,21 @@ class VQVAE(L.LightningModule):
 
 		# SI-SDR
 		self.log(f"{mode}/si_sdr_full_audio_measure",
-				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed.squeeze(1)).mean(),
+				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=original_mixture).mean(),
 				 on_epoch=True,
 				 on_step=False,
 				 prog_bar=False)
 
 		# MSE loss
 		self.log(f"{mode}/l2_full_audio_loss",
-				 F.mse_loss(input=mixed_output, target=mixed.squeeze(1)),
+				 F.mse_loss(input=mixed_output, target=original_mixture),
 				 on_epoch=True,
 				 on_step=False,
 				 prog_bar=False)
 
 		# L1 loss
 		self.log(f"{mode}/l1_full_audio_loss",
-				 F.l1_loss(input=mixed_output, target=mixed.squeeze(1)),
+				 F.l1_loss(input=mixed_output, target=original_mixture),
 				 on_epoch=True,
 				 on_step=False,
 				 prog_bar=False)
@@ -182,12 +185,14 @@ class VQVAE(L.LightningModule):
 			with torch.no_grad():
 				mixed, instruments = batch
 				index = random.randint(0, mixed.size(0) - 1)
+
 				mixed = mixed[index]
 				instruments = instruments[index]
 
 				output = self.forward(mixed.unsqueeze(0))
 				output_instruments = output[0].squeeze()
 
+				del mixed
 				epoch = self.trainer.current_epoch
 
 				data = [[], []]
@@ -209,7 +214,10 @@ class VQVAE(L.LightningModule):
 				original_full_file = f'{self.hparams.checkpoint_dir}/original_full_song.wav'
 				decoded_full_file = f'{self.hparams.checkpoint_dir}/generated_full_song.wav'
 
-				torchaudio.save(uri=original_full_file, src=mixed.detach().cpu(), sample_rate=self.hparams.sample_rate)
+				torchaudio.save(uri=original_full_file,
+								src=torch.einsum('ij-> j', instruments).unsqueeze(0).detach().cpu(),
+								sample_rate=self.hparams.sample_rate)
+
 				torchaudio.save(uri=decoded_full_file,
 								src=torch.einsum('ij-> j', output_instruments).unsqueeze(0).detach().cpu(),
 								sample_rate=self.hparams.sample_rate)
@@ -232,4 +240,4 @@ class VQVAE(L.LightningModule):
 		""" At the end of each epoch save the codebook """
 		codebook_weights = self.vector_quantizer.codebook.weight.data.cpu().numpy()
 		codebook_dataframe = pd.DataFrame(codebook_weights)
-		codebook_dataframe.to_csv(self.hparams.codebook_file)
+		codebook_dataframe.to_csv(self.hparams.codebook_file, index=False, header=False)

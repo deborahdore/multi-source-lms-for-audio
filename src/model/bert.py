@@ -1,96 +1,98 @@
 import random
-from typing import Any
+from typing import Any, Tuple
 
 import lightning as L
+import pandas as pd
 import torch
+import torch.nn as nn
 import torchaudio
 import wandb
-from torch import nn as nn, optim
 from torch.nn import functional as F
 from torchmetrics.functional.audio import scale_invariant_signal_distortion_ratio
+from transformers import BertForMaskedLM, BertTokenizer
 
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
-class TransformerQuantizerDecoder(L.LightningModule):
+class AudioBert(L.LightningModule):
 	def __init__(self,
-				 sample_rate: int,
-				 frame_length: int,
 				 learning_rate: float,
 				 checkpoint_dir: str,
-				 num_layers: int = 4,
-				 num_heads: int = 8,
-				 hidden_dim: int = 512):
+				 codebook: str,
+				 sample_rate: int,
+				 frame_length: int,
+				 num_embedding: int):
+		super(AudioBert, self).__init__()
 
-		super(TransformerQuantizerDecoder, self).__init__()
-
+		self.max_hidden_size = 512
 		self.save_hyperparameters()
 
-		output_dim = sample_rate * frame_length
-		input_dim = (sample_rate * frame_length) // 4
+		self.codebook = torch.tensor(pd.read_csv(codebook).values, requires_grad=False, dtype=torch.float)
+		self.bert = BertForMaskedLM.from_pretrained('bert-large-uncased')
+		self.softmax = nn.Softmax(dim=-1)
 
-		self.embedding = nn.Linear(input_dim, hidden_dim)
-		self.positional_encoding = PositionalEncoding(hidden_dim)
-		decoder_layer = nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=num_heads)
-		self.transformer_decoder = nn.TransformerDecoder(decoder_layer=decoder_layer, num_layers=num_layers)
-		self.fc = nn.Linear((hidden_dim * 64) // 4, output_dim)
+		tokenizer = BertTokenizer.from_pretrained('bert-large-uncased', do_lower_case=True)
+		self.mask_token = tokenizer.convert_tokens_to_ids('[MASK]')
+		self.pad_token = tokenizer.convert_tokens_to_ids('[PAD]')
 
-	def training_step(self, batch, batch_idx):
+		self.conv = nn.Conv1d(in_channels=64, out_channels=4, kernel_size=4, stride=2, padding=1)
+		self.linear = nn.Linear(in_features=(sample_rate * frame_length) // 8, out_features=sample_rate * frame_length)
+
+	def forward(self, x: torch.Tensor, batch_size: int, seq_len: int):
+		start = 0
+		input_size = x.size(0)
+		output = []
+
+		rand_probs = torch.rand(x.size(0))
+		x[rand_probs < 0.15] = self.mask_token
+
+		while start < input_size:
+			end = start + self.max_hidden_size
+			tokens = x[start:end]
+			if tokens.size(0) < self.max_hidden_size:
+				tokens = torch.cat((tokens, torch.Tensor([self.pad_token] * (self.max_hidden_size - len(tokens)))))
+
+			bert_output = self.bert(tokens.unsqueeze(0).to(torch.int)).logits
+			bert_output = self.softmax(bert_output).argmax(dim=-1).squeeze()
+			output += bert_output.squeeze()
+			start = end
+
+		output = torch.Tensor(output[:input_size])
+		output = torch.round((output.squeeze() / output.max()) * (self.max_hidden_size - 1))
+		encodings = torch.zeros(output.size(0), self.hparams.num_embedding, device=x.device)
+		encodings.scatter_(1, output.to(torch.int64).unsqueeze(1), 1)
+		quantized = torch.matmul(encodings, self.codebook).view(batch_size, seq_len // 4, -1)
+		quantized = torch.einsum('bwc -> bcw', quantized).contiguous()
+		output = self.linear(self.conv(quantized))
+		return output
+
+	def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
 		quantized, instruments = batch
-		output = self.forward(quantized)
+		batch_size = instruments.size(0)
+		output = self.forward(quantized.squeeze(), batch_size=batch_size, seq_len=instruments.size(-1))
 
-		# loss per instrument
 		loss = 0
 		for i in range(4):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
 
-		self.log("train/loss", loss, on_epoch=True, on_step=True, prog_bar=True)
+		self.log("train/loss", loss, on_epoch=True, on_step=True, batch_size=batch_size, prog_bar=True)
 		return loss
 
-	def validation_step(self, batch, batch_idx):
-		return self.calculate_loss(batch, mode="validation")
+	def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+		return self.calculate_loss(batch, "validation")
 
-	def test_step(self, batch, batch_idx):
-		return self.calculate_loss(batch, mode="testing")
+	def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+		return self.calculate_loss(batch, "test")
 
-	def forward(self, x):
-		# Assuming input shape: (batch_size, sequence_length, input_dim)
-		batch_size = x.size(0)
-		seq_len = x.size(1)
-
-		# Mask and reshape the input to (sequence_length, batch_size, input_dim)
-		x = x.permute(1, 0, 2)
-
-		# Embedding the input
-		x = self.embedding(x)
-		x = self.positional_encoding(x)
-
-		# Transformer decoder
-		tgt_mask = nn.Transformer.generate_square_subsequent_mask(seq_len).to(x.device)
-		memory = torch.zeros(seq_len, batch_size, self.hparams.hidden_dim).to(x.device)  # Initialize memory
-
-		output = self.transformer_decoder(x, memory, tgt_mask=tgt_mask)
-
-		# Transpose output to (batch_size, sequence_length, output_dim)
-		output = output.permute(1, 0, 2).reshape(batch_size, 4, -1)
-
-		# Fully connected layer for output
-		output = self.fc(output)
-
-		return output
-
-	def calculate_loss(self, batch, mode: str):
-		""" Calculates losses during a validation and testing step """
+	def calculate_loss(self, batch: Tuple[torch.Tensor, torch.Tensor], mode: str):
 		quantized, instruments = batch
-		output = self.forward(quantized)
+		batch_size = instruments.size(0)
+		output = self.forward(quantized.squeeze(), batch_size=batch_size, seq_len=instruments.size(-1))
 		mixed_output = torch.einsum('bij-> bj', output)
 		mixed = torch.einsum('bij-> bj', instruments)
-
 		instruments_name = ["bass", "drums", "guitar", "piano"]
-
-		# loss per instrument
 		loss = 0
 		for i, instrument in enumerate(instruments_name):
 			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
@@ -100,44 +102,33 @@ class TransformerQuantizerDecoder(L.LightningModule):
 					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_step=False,
 					 on_epoch=True,
-					 prog_bar=False)
+					 prog_bar=False,
+					 batch_size=batch_size)
 
-			# L1 LOSS
-			self.log(f"{mode}/l1_{instrument}_loss",
-					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
-					 on_step=False,
-					 on_epoch=True,
-					 prog_bar=False)
 			# SI_SDR
 			self.log(f"{mode}/si_sdr_{instrument}_measure",
 					 scale_invariant_signal_distortion_ratio(preds=output[:, i, :], target=instruments[:, i,
 																						   :]).mean(),
 					 on_step=False,
 					 on_epoch=True,
-					 prog_bar=False)
-
+					 prog_bar=False,
+					 batch_size=batch_size)
 		# SI-SDR
 		self.log(f"{mode}/si_sdr_full_audio_measure",
 				 scale_invariant_signal_distortion_ratio(preds=mixed_output, target=mixed).mean(),
 				 on_epoch=True,
 				 on_step=False,
-				 prog_bar=False)
-
+				 prog_bar=False,
+				 batch_size=batch_size)
 		# MSE loss
 		self.log(f"{mode}/l2_full_audio_loss",
 				 F.mse_loss(input=mixed_output, target=mixed),
 				 on_epoch=True,
 				 on_step=False,
-				 prog_bar=False)
+				 prog_bar=False,
+				 batch_size=batch_size)
+		self.log(f"{mode}/loss", loss, on_epoch=True, on_step=True, batch_size=batch_size, prog_bar=True)
 
-		# L1 loss
-		self.log(f"{mode}/l1_full_audio_loss",
-				 F.l1_loss(input=mixed_output, target=mixed),
-				 on_epoch=True,
-				 on_step=False,
-				 prog_bar=False)
-
-		self.log(f"{mode}/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 		return loss
 
 	def on_validation_batch_end(self, outputs: torch.Tensor, batch: Any, batch_idx: int, dataloader_idx: int = 0):
@@ -154,11 +145,13 @@ class TransformerQuantizerDecoder(L.LightningModule):
 
 			with torch.no_grad():
 				quantized, instruments = batch
-				index = random.randint(0, quantized.size(0) - 1)
-				instruments = instruments[index]
+				batch_size = instruments.size(0)
+				index = random.randint(0, batch_size - 1)
 				quantized = quantized[index]
+				instruments = instruments[index]
 
-				output = self.forward(quantized.unsqueeze(0))
+				output = self.forward(quantized.squeeze(), batch_size=1, seq_len=instruments.size(-1))
+
 				output_instruments = output[0].squeeze()
 
 				epoch = self.trainer.current_epoch
@@ -204,22 +197,5 @@ class TransformerQuantizerDecoder(L.LightningModule):
 			return
 
 	def configure_optimizers(self):
-		""" Configure Adam Optimizer for training """
-		optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate, amsgrad=False)
+		optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
 		return optimizer
-
-
-class PositionalEncoding(nn.Module):
-	def __init__(self, d_model: int, max_len: int = 10000):
-		super(PositionalEncoding, self).__init__()
-
-		pe = torch.zeros(max_len, d_model)
-		position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-		div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
-		pe[:, 0::2] = torch.sin(position * div_term)
-		pe[:, 1::2] = torch.cos(position * div_term)
-		pe = pe.unsqueeze(0)
-		self.register_buffer('pe', pe)
-
-	def forward(self, x):
-		return x + self.pe[:, :x.size(1)].detach()

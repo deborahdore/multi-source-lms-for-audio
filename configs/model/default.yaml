@@ -1,4 +1,5 @@
 defaults:
   - vqvae
   - transformer
+  - bert
   - _self_
