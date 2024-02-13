@@ -54,8 +54,6 @@ class SlakhDataModule(L.LightningDataModule):
 		self.test_dir = test_dir
 
 		self.quantize = quantizer
-		self.train_transformer = train_transformer
-		self.train_bert = train_bert
 
 		self.target_sample_rate = target_sample_rate
 		self.target_sample_duration = target_sample_duration
@@ -67,17 +65,17 @@ class SlakhDataModule(L.LightningDataModule):
 		self.persistent_workers = persistent_workers
 		self.masking = masking
 
-	def create_dataset(self, path: str):
+	def create_dataset(self, path: str, masking: bool = False):
 		return SlakhDataset(path,
 							target_sample_rate=self.target_sample_rate,
 							target_sample_duration=self.target_sample_duration,
 							max_duration=self.max_duration,
 							maximum_dataset_size=self.maximum_dataset_size,
-							masking=self.masking)
+							masking=masking)
 
 	def train_dataloader(self):
 		## !!! do not create a dataset during setup. Due to a lightning bug, it could downgrade the performances
-		return DataLoader(self.create_dataset(self.train_dir),
+		return DataLoader(self.create_dataset(self.train_dir, masking=self.masking),
 						  batch_size=self.batch_size,
 						  pin_memory=self.pin_memory,
 						  num_workers=self.num_workers,

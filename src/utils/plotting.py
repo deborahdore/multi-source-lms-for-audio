@@ -41,16 +41,16 @@ def plot_embeddings_from_quantized(cfg: DictConfig,
 
 	instruments_name = ["bass", "drums", "guitar", "piano"]
 
-	checkpoint = torch.load(f"{cfg.paths.checkpoint_dir}/best_vqvae.ckpt", map_location=device)
+	checkpoint = torch.load(f"{cfg.paths.best_checkpoint_dir}/best_vqvae.ckpt", map_location=device)
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
 	vqvae.load_state_dict(checkpoint['state_dict'])
 	vqvae.eval()
 
 	mixed, instruments = batch
 	for idx in range(instruments.size(1)):
-		one_instrument = instruments[:, idx, :].unsqueeze(0)
-		quantized, encodings, encodings_indices = vqvae.get_quantized(one_instrument)
-		encodings_indices = torch.unique(encodings_indices)
+		one_instrument = torch.stack([instruments[:, idx, :].squeeze()] * 4).unsqueeze(0)
+		quantized, encodings, encodings_idx = vqvae.get_quantized(one_instrument)
+		encodings_indices = torch.unique(encodings_idx)
 		selected_embeddings = proj[encodings_indices]
 
 		sns.set(style='whitegrid')

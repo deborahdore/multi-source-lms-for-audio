@@ -1,10 +1,12 @@
 import os.path
+import random
 from typing import List
 
 import hydra
 import lightning as L
 import rootutils
 import torch
+import torchaudio
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
@@ -121,6 +123,7 @@ def train_bert(cfg: DictConfig):
 	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, quantizer=quantizer)
 
 	bert: LightningModule = hydra.utils.instantiate(cfg.model.bert)
+	bert.to(device)
 
 	logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
@@ -161,11 +164,11 @@ def train_bert(cfg: DictConfig):
 
 
 def visualize(cfg: DictConfig):
-	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, batch_size=1)
-	data_module.setup(stage='predict')
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, batch_size=1, masking=False)
 
 	instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
-	mixed, instruments = next(iter(data_module.predict_dataloader()))
+	instruments = next(iter(data_module.predict_dataloader()))
+	mixed = torch.einsum('ij->j', instruments.squeeze()).reshape(1, 1, -1)
 
 	plot_embeddings_from_quantized(cfg, batch=(mixed, instruments), device=device)
 	plot_codebook(cfg)
@@ -176,6 +179,36 @@ def visualize(cfg: DictConfig):
 
 	plot_spectrogram(mixed.squeeze(0), plot_dir=cfg.paths.plot_dir, title="song")
 	plot_waveform(mixed.squeeze(0), plot_dir=cfg.paths.plot_dir, title="song")
+
+
+def generate(cfg: DictConfig):
+	data_module: LightningDataModule = hydra.utils.instantiate(cfg.data, batch_size=1, masking=False)
+
+	# instruments_name = ["bass.wav", "drums.wav", "guitar.wav", "piano.wav"]
+	instruments = next(iter(data_module.predict_dataloader()))
+
+	bert: LightningModule = hydra.utils.instantiate(cfg.model.bert)
+	# bert.load_state_dict(
+	# 	torch.load(f"{cfg.paths.best_checkpoint_dir}/best_bert.ckpt", map_location=device)['state_dict'])
+	bert.eval()
+
+	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
+	vqvae.load_state_dict(
+		torch.load(f"{cfg.paths.best_checkpoint_dir}/best_vqvae.ckpt", map_location=device)['state_dict'])
+	vqvae.eval()
+
+	idx = random.randint(0, 3)
+	instruments[:, idx, :] = torch.rand_like(instruments)[:, idx, :]
+	quantized, encodings, encodings_idx = vqvae.get_quantized(instruments)
+	output = bert.predict_step((encodings_idx, instruments))
+
+	random_sound = f'{cfg.paths.checkpoint_dir}/random_instrument.wav'
+	decoded_sound = f'{cfg.paths.checkpoint_dir}/bert_generated_during_evaluation.wav'
+
+	torchaudio.save(uri=random_sound,
+					src=instruments[:, idx, :].detach().cpu(),
+					sample_rate=cfg.data.target_sample_rate)
+	torchaudio.save(uri=decoded_sound, src=output[:, idx, :].detach().cpu(), sample_rate=cfg.data.target_sample_rate)
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
@@ -194,7 +227,8 @@ def main(cfg: DictConfig):
 	if cfg.train_bert:
 		metric_dict, _ = train_bert(cfg)
 
-	# visualize(cfg)
+	generate(cfg)
+	visualize(cfg)
 
 	# safely retrieve metric value for hydra-based hyperparameter optimization
 	metric_value = get_metric_value(metric_dict=metric_dict, metric_name=cfg.get("optimized_metric"))

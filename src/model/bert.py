@@ -27,13 +27,13 @@ class AudioBert(L.LightningModule):
 		super(AudioBert, self).__init__()
 
 		self.max_hidden_size = 512
-		self.save_hyperparameters()
+		self.save_hyperparameters("num_embedding", "checkpoint_dir", "sample_rate", "learning_rate")
 
 		self.codebook = torch.tensor(pd.read_csv(codebook).values, requires_grad=False, dtype=torch.float)
-		self.bert = BertForMaskedLM.from_pretrained('bert-large-uncased')
+		self.bert = BertForMaskedLM.from_pretrained('bert-base-uncased')
 		self.softmax = nn.Softmax(dim=-1)
 
-		tokenizer = BertTokenizer.from_pretrained('bert-large-uncased', do_lower_case=True)
+		tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
 		self.mask_token = tokenizer.convert_tokens_to_ids('[MASK]')
 		self.pad_token = tokenizer.convert_tokens_to_ids('[PAD]')
 
@@ -41,31 +41,49 @@ class AudioBert(L.LightningModule):
 		self.linear = nn.Linear(in_features=(sample_rate * frame_length) // 8, out_features=sample_rate * frame_length)
 
 	def forward(self, x: torch.Tensor, batch_size: int, seq_len: int):
-		start = 0
-		input_size = x.size(0)
 		output = []
 
-		rand_probs = torch.rand(x.size(0))
-		x[rand_probs < 0.15] = self.mask_token
+		if self.training:
+			rand_probs = torch.rand(x.size(0), device=x.device)
+			x[rand_probs < 0.15] = self.mask_token
 
+		x = x.reshape(batch_size, -1)
+		input_size = x.size(1)
+
+		start = 0
 		while start < input_size:
 			end = start + self.max_hidden_size
-			tokens = x[start:end]
-			if tokens.size(0) < self.max_hidden_size:
-				tokens = torch.cat((tokens, torch.Tensor([self.pad_token] * (self.max_hidden_size - len(tokens)))))
+			tokens = x[:, start:end]
+			attention_mask = torch.ones((tokens.size(0), 512), device=x.device)
+			if tokens.size(1) < self.max_hidden_size:
+				padding = torch.zeros(batch_size,
+									  self.max_hidden_size - tokens.size(1),
+									  dtype=tokens.dtype,
+									  device=tokens.device)
+				attention_mask[:, tokens.size(1):] = 0
+				tokens = torch.cat((tokens, padding), dim=1)
 
-			bert_output = self.bert(tokens.unsqueeze(0).to(torch.int)).logits
-			bert_output = self.softmax(bert_output).argmax(dim=-1).squeeze()
-			output += bert_output.squeeze()
+			bert_output = self.bert(tokens.to(torch.int), attention_mask=attention_mask).logits
+			bert_output = self.softmax(bert_output).argmax(dim=-1)
+			output.append(bert_output)
 			start = end
 
-		output = torch.Tensor(output[:input_size])
-		output = torch.round((output.squeeze() / output.max()) * (self.max_hidden_size - 1))
+		output = torch.cat(output, dim=1)
+		output = output[:, :input_size].reshape(-1)
+		output = torch.round((output / output.max()) * (self.max_hidden_size - 1))
+
 		encodings = torch.zeros(output.size(0), self.hparams.num_embedding, device=x.device)
 		encodings.scatter_(1, output.to(torch.int64).unsqueeze(1), 1)
-		quantized = torch.matmul(encodings, self.codebook).view(batch_size, seq_len // 4, -1)
-		quantized = torch.einsum('bwc -> bcw', quantized).contiguous()
-		output = self.linear(self.conv(quantized))
+
+		quantized = torch.matmul(encodings, self.codebook.to(x.device)).view(batch_size, seq_len // 4, -1)
+		quantized = torch.einsum('bwc -> bcw', quantized)
+
+		output = self.linear(self.conv(quantized.to(x.device)))
+		return output
+
+	def predict_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int = None):
+		quantized, instruments = batch
+		output = self.forward(quantized.squeeze(), batch_size=instruments.size(-0), seq_len=instruments.size(-1))
 		return output
 
 	def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
@@ -147,12 +165,12 @@ class AudioBert(L.LightningModule):
 				quantized, instruments = batch
 				batch_size = instruments.size(0)
 				index = random.randint(0, batch_size - 1)
-				quantized = quantized[index]
+				quantized = quantized.reshape(batch_size, -1)[index]
 				instruments = instruments[index]
 
 				output = self.forward(quantized.squeeze(), batch_size=1, seq_len=instruments.size(-1))
 
-				output_instruments = output[0].squeeze()
+				output_instruments = output.squeeze()
 
 				epoch = self.trainer.current_epoch
 
