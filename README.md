@@ -39,33 +39,6 @@ conda env create -f environment.yaml -n myenv
 conda activate myenv
 ```
 
-## Dataset
-
-The dataset is the Slakh2100 dataset available at this [url](https://zenodo.org/records/4603870).
-The dataset was processed in order to obtain only the 4 most present instruments: bass, drums, guitar and piano.
-The dataset folder should have this structure:
-
-```
-    slakh2100
-        |
-        | - train
-        |     | 
-        |     | - Track01
-        |     | - Track02
-        |     | - ...
-        | - validation
-        |     | 
-        |     | - Track03
-        |     | - ...
-        | - test
-              | 
-              | - Track04
-              | - ...
-```
-
-A simple guide on how to do that can be
-found [here](https://github.com/gladia-research-group/multi-source-diffusion-models/tree/main/data).
-
 ## How to run
 
 ### Basic Training with default configurations
@@ -102,6 +75,33 @@ python src/train.py hparams_search=optuna
 
 Modify hyper-parameter search configurations in the [optuna.yaml](configs%2Fhparams_search%2Foptuna.yaml)
 
-### Model Checkpoints
+## Dataset
+
+The dataset is the Slakh2100 dataset available at this [url](https://zenodo.org/records/4603870).
+The dataset was processed in order to obtain only the 4 most present instruments: bass, drums, guitar and piano.
+The dataset folder should have this structure:
+
+```
+    slakh2100
+        |
+        | - train
+        |     | 
+        |     | - Track01
+        |     | - Track02
+        |     | - ...
+        | - validation
+        |     | 
+        |     | - Track03
+        |     | - ...
+        | - test
+              | 
+              | - Track04
+              | - ...
+```
+
+A simple guide on how to do that can be
+found [here](https://github.com/gladia-research-group/multi-source-diffusion-models/tree/main/data).
+
+## Model Checkpoints
 
 Model checkpoints are available in their corresponding folder: [best_checkpoint](logs%2Fbest_checkpoint)
