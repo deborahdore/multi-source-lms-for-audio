@@ -77,9 +77,10 @@ Modify hyper-parameter search configurations in the [optuna.yaml](configs%2Fhpar
 
 ## Dataset
 
-The dataset is the Slakh2100 dataset available at this [url](https://zenodo.org/records/4603870).
-The dataset was processed in order to obtain only the 4 most present instruments: bass, drums, guitar and piano.
-The dataset folder should have this structure:
+The dataset used in this project is the Slakh2100 dataset, which is available at the
+following [URL](https://zenodo.org/records/4603870). <br>
+The dataset was processed to extract the four most prevalent instruments: bass, drums, guitar, and piano. <br>
+The final dataset should have this structure
 
 ```
     slakh2100
@@ -87,6 +88,11 @@ The dataset folder should have this structure:
         | - train
         |     | 
         |     | - Track01
+        |     |     | - bass.wav
+        |     |     | - guitar.wav
+        |     |     | - drums.wav
+        |     |     | - piano.wav
+        |     |
         |     | - Track02
         |     | - ...
         | - validation
