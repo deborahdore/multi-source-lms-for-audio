@@ -26,6 +26,7 @@ def plot_codebook(cfg: DictConfig):
 	sns.scatterplot(x=proj[:, 0], y=proj[:, 1], hue=clusters, legend='full')
 	plt.title('Codebook Embeddings - KMeans Clustering (k=4)')
 	plt.legend(title='Clusters')
+	plt.tight_layout()
 	plt.savefig(f"{cfg.paths.plot_dir}/codebook.svg")
 
 
@@ -59,6 +60,7 @@ def plot_embeddings_from_quantized(cfg: DictConfig,
 		sns.scatterplot(x=selected_embeddings[:, 0], y=selected_embeddings[:, 1], alpha=0.5, color='yellow')
 		plt.title(f'{instruments_name[idx].upper()} Embeddings')
 		plt.legend(title='Clusters')
+		plt.tight_layout()
 		plt.savefig(f"{cfg.paths.plot_dir}/{instruments_name[idx].lower()}_embeddings_quantized_representation.svg")
 
 
@@ -76,6 +78,7 @@ def plot_waveform(waveform: torch.Tensor, plot_dir: str, sample_rate: int = 2205
 	plt.title(f'{title} Waveform')
 	plt.grid(True)
 	# plt.show()
+	plt.tight_layout()
 	plt.savefig(f"{plot_dir}/{title}_waveform.svg")
 
 
@@ -99,4 +102,5 @@ def plot_spectrogram(waveform: torch.Tensor, plot_dir: str, sample_rate: int = 2
 	plt.title(f'{title} Spectrogram')
 	plt.colorbar(format='%+2.0f dB')
 	# plt.show()
+	plt.tight_layout()
 	plt.savefig(f"{plot_dir}/{title}_spectrogram.svg")

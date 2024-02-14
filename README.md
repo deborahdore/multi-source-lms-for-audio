@@ -23,6 +23,13 @@ embedding layer. These representations are usually integers, representing indice
 in this case, it was necessary to represent audio data in a format compatible with BERT, such as the indexes of the
 codebook more similar to the input audio that would have been used to quantize the input source.
 
+<figure>
+    <center>
+        <img src="logs/plot_dir/codebook.svg">
+        <figcaption> Visualization of VQVAE's Codebook </figcaption>
+    </center>
+</figure>
+
 ## Installation
 
 #### Conda
