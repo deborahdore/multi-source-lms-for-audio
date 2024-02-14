@@ -6,7 +6,7 @@ target_sample_rate    : 22000 # the rate at which instruments will be resampled
 target_sample_duration: 2 # total length of each sample
 max_duration          : 120 # maximum duration of a song in seconds
 maximum_dataset_size  : 150000 # maximum size of the dataset
-batch_size            : 32
+batch_size            : 64
 num_workers           : 1
 pin_memory            : True
 masking               : True
