@@ -51,16 +51,16 @@ conda activate myenv
 
 ```bash
 # train on CPU
-python src/train.py trainer.accelerator=cpu
+python src/main.py trainer.accelerator=cpu
 
 # train on GPU
-python src/train.py trainer.accelerator=gpu
+python src/main.py trainer.accelerator=gpu
 ```
 
 #### Choose the model to train with flag: **[train_vqvae, train_transformer, train_bert]**
 
 ```bash
-python src/train.py debug=default train_bert=True
+python src/main.py debug=default train_bert=True
 ```
 
 Modify configuration directly in the [configuration](configs) folder.
@@ -68,7 +68,7 @@ Modify configuration directly in the [configuration](configs) folder.
 ### Debug
 
 ```bash
-python src/train.py debug=default
+python src/main.py debug=default
 ```
 
 Modify configuration for debugging in the [default.yaml](configs%2Fdebug%2Fdefault.yaml).
@@ -76,7 +76,7 @@ Modify configuration for debugging in the [default.yaml](configs%2Fdebug%2Fdefau
 ### Hyper-parameter search
 
 ```bash
-python src/train.py hparams_search=optuna
+python src/main.py hparams_search=optuna
 ```
 
 Modify hyper-parameter search configurations in the [optuna.yaml](configs%2Fhparams_search%2Foptuna.yaml)

@@ -40,6 +40,8 @@ class AudioBert(L.LightningModule):
 		self.conv = nn.Conv1d(in_channels=64, out_channels=4, kernel_size=4, stride=2, padding=1)
 		self.linear = nn.Linear(in_features=(sample_rate * frame_length) // 8, out_features=sample_rate * frame_length)
 
+
+
 	def forward(self, x: torch.Tensor, batch_size: int, seq_len: int):
 		output = []
 
@@ -93,7 +95,7 @@ class AudioBert(L.LightningModule):
 
 		loss = 0
 		for i in range(4):
-			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+			loss += F.l1_loss(input=output[:, i, :], target=instruments[:, i, :])
 
 		self.log("train/loss", loss, on_epoch=True, on_step=True, batch_size=batch_size, prog_bar=True)
 		return loss
@@ -113,11 +115,19 @@ class AudioBert(L.LightningModule):
 		instruments_name = ["bass", "drums", "guitar", "piano"]
 		loss = 0
 		for i, instrument in enumerate(instruments_name):
-			loss += F.mse_loss(input=output[:, i, :], target=instruments[:, i, :])
+			loss += F.l1_loss(input=output[:, i, :], target=instruments[:, i, :])
 
 			# MSE LOSS
 			self.log(f"{mode}/l2_{instrument}_loss",
 					 F.mse_loss(input=output[:, i, :], target=instruments[:, i, :]),
+					 on_step=False,
+					 on_epoch=True,
+					 prog_bar=False,
+					 batch_size=batch_size)
+
+			# L1 LOSS
+			self.log(f"{mode}/l1_{instrument}_loss",
+					 F.l1_loss(input=output[:, i, :], target=instruments[:, i, :]),
 					 on_step=False,
 					 on_epoch=True,
 					 prog_bar=False,
@@ -145,6 +155,15 @@ class AudioBert(L.LightningModule):
 				 on_step=False,
 				 prog_bar=False,
 				 batch_size=batch_size)
+
+		# L1 loss
+		self.log(f"{mode}/l1_full_audio_loss",
+				 F.l1_loss(input=mixed_output, target=mixed),
+				 on_epoch=True,
+				 on_step=False,
+				 prog_bar=False,
+				 batch_size=batch_size)
+
 		self.log(f"{mode}/loss", loss, on_epoch=True, on_step=True, batch_size=batch_size, prog_bar=True)
 
 		return loss
