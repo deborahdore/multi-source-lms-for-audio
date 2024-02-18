@@ -40,8 +40,6 @@ class AudioBert(L.LightningModule):
 		self.conv = nn.Conv1d(in_channels=64, out_channels=4, kernel_size=4, stride=2, padding=1)
 		self.linear = nn.Linear(in_features=(sample_rate * frame_length) // 8, out_features=sample_rate * frame_length)
 
-
-
 	def forward(self, x: torch.Tensor, batch_size: int, seq_len: int):
 		output = []
 

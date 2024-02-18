@@ -21,7 +21,7 @@ from src.utils.util import extras, get_metric_value, task_wrapper
 from src.data.transform import Quantize
 
 torch.set_float32_matmul_precision("medium")
-device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+device = torch.device('mps') if torch.backends.mps.is_available() else torch.device('cpu')
 
 
 @task_wrapper
@@ -188,8 +188,8 @@ def generate(cfg: DictConfig):
 	instruments = next(iter(data_module.predict_dataloader()))
 
 	bert: LightningModule = hydra.utils.instantiate(cfg.model.bert)
-	# bert.load_state_dict(
-	# 	torch.load(f"{cfg.paths.best_checkpoint_dir}/best_bert.ckpt", map_location=device)['state_dict'])
+	bert.load_state_dict(
+		torch.load(f"{cfg.paths.best_checkpoint_dir}/best_bert.ckpt", map_location=device)['state_dict'])
 	bert.eval()
 
 	vqvae: LightningModule = hydra.utils.instantiate(cfg.model.vqvae)
@@ -227,10 +227,9 @@ def main(cfg: DictConfig):
 	if cfg.train_bert:
 		metric_dict, _ = train_bert(cfg)
 
-	# generate(cfg)
-	# visualize(cfg)
+	generate(cfg)
+	visualize(cfg)
 
-	# safely retrieve metric value for hydra-based hyperparameter optimization
 	metric_value = get_metric_value(metric_dict=metric_dict, metric_name=cfg.get("optimized_metric"))
 
 	# return optimized metric for optuna
